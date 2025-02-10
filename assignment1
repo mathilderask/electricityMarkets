@@ -1,6 +1,10 @@
-# Exampel
+# Example
 
 using JuMP,GLPK
+
+# Load data from csv file
+LoadProfile = CSV.read("LoadProfile.csv", DataFrame)
+GUD = CSV.read("GeneratingUnitsData.csv", DataFrame)
 
 m = Model(GLPK.Optimizer)
 
