@@ -1,0 +1,25 @@
+# Exampel
+
+using JuMP,GLPK
+
+m = Model(GLPK.Optimizer)
+
+@variable(m, x1 >= 0)
+@variable(m, x2 >= 0)
+
+@objective(m, Max, 1*x1 + 2*x2)
+
+@constraint(m, 1*x1 + 3*x2 <= 200)
+@constraint(m, 2*x1 + 2*x2 <= 300)
+@constraint(m, x2 <= 60)
+
+optimize!(m)
+
+if termination_status(m) == MOI.OPTIMAL
+    println("Objective value: ", JuMP.objective_value(m))
+    println("x1 = ", JuMP.value(x1))
+    println("x2 = ", JuMP.value(x2))
+else
+    println("Optimize was not succesful. Return code: ", termination_status(m))
+end
+
