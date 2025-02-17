@@ -8,7 +8,11 @@ GUD = CSV.read("GeneratingUnitsData.csv", DataFrame)
 
 m = Model(GLPK.Optimizer)
 
-@variable(m, x1 >= 0)
+# Define power production variables for each unit
+num_units = nrow(GUD)  # Number of generating units
+@variable(m, p[i=1:num_units], GUD.Pi_min[i] <= p[i] <= GUD.Pi_max[i])  # Power output bounds
+
+@variable(m, p1_max >= 0)
 @variable(m, x2 >= 0)
 @variable(m, x3 >= 0)
 
