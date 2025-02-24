@@ -22,7 +22,7 @@ m = Model(GLPK.Optimizer)
 
 # Minimum up and down time constraints
 @constraint(m, min_up_time[i=1:num_units], u[i] * GUD.UT[i] <= sum(u[j] for j in 1:num_units))
-@constraint(m, min_down_time[i=1:num_units], (1 - u[i]) * GUD.DT[i] <= sum(1 - u[j] for j in 1:num_units
+@constraint(m, min_down_time[i=1:num_units], (1 - u[i]) * GUD.DT[i] <= sum(1 - u[j] for j in 1:num_units))
 
 @variable(m, p1_max >= 0)
 @variable(m, x2 >= 0)
