@@ -1,6 +1,21 @@
 # Example
 
-using JuMP,GLPK
+using Pkg
+Pkg.add("CSV")
+Pkg.add("DataFrames")
+Pkg.add("JuMP")
+Pkg.add("GLPK")
+
+using CSV, DataFrames, JuMP, GLPK
+
+df_GUD = CSV.read("GeneratingUnitsData.csv", DataFrame)
+#df_LP = CSV.read("LoadProfile.csv", DataFrame)
+
+Pi_max = df_GUD[:, :"Pi_max"]  # This extracts the column "UnitNo" as a vector.
+#B = df_GUD.B  # Similarly for column "B".
+
+println(Pi_max)
+#println(B)
 
 # Load data from csv file
 LoadProfile = CSV.read("LoadProfile.csv", DataFrame)
@@ -8,6 +23,7 @@ GUD = CSV.read("GeneratingUnitsData.csv", DataFrame)
 
 m = Model(GLPK.Optimizer)
 
+"""
 # Define power production and unit commitment variables
 @variable(m, GUD.Pi_min[i] <= p[i=1:num_units] <= GUD.Pi_max[i])  # Power output
 @variable(m, u[i=1:num_units], Bin)  # Unit on/off status
@@ -44,4 +60,4 @@ if termination_status(m) == MOI.OPTIMAL
 else
     println("Optimize was not succesful. Return code: ", termination_status(m))
 end
-
+"""

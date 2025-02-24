@@ -1,4 +1,4 @@
-UnitNo.;Node;Pi_max [MW];Pi_min [MW];Ri_+ [MW];Ri_- [MW];Ri_U [MW/h];Ri_D [MW/h];UT [h];DT [h];Ci [$/MWh];Ci_u  [$/MWh];Ci_d  [$/MWh];Ci_+  [$/MWh];Ci_- [$/MWh];Ci_su [$];Pi_ini [MW];Ui_ini [0/1];Ti_ini [h]
+UnitNo;Node;Pi_max;Pi_min;Ri_+;Ri_-;Ri_U;Ri_D;UT;DT;Ci;Ci_u;Ci_d;Ci_+;Ci_-;Ci_su;Pi_ini;Ui_ini;Ti_ini
 1;1;152;30,4;40;40;120;120;8;4;13,32;15;14;15;11;1430,4;76;1;22
 2;2;152;30,4;40;40;120;120;8;4;13,32;15;14;15;11;1430,4;76;1;22
 3;7;350;75;70;70;350;350;8;8;20,7;10;9;24;16;1725;0;0;-2
