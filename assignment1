@@ -12,15 +12,17 @@ n = 12
 
 df_GUD = CSV.read("GeneratingUnitsData.csv", DataFrame)
 df_LP = CSV.read("LoadProfile.csv", DataFrame)
+df_LN = CSV.read("LoadNodes.csv", DataFrame)
 
 # Extract data from CSV files
 Pi_max = df_GUD[:, :"Pi_max"] # Maximum power output
 Ci = df_GUD[:, :"Ci"] # Production cost
-D = df_LP[:, :"System demand (MW)"] # Load profile
+Di = df_LP[:, :"System demand (MW)"] # Load profile
+LN = df_LN[:, :"Percentage_SystemLoad"] # Load nodes
 
-# Load data from csv file
-LoadProfile = CSV.read("LoadProfile.csv", DataFrame)
-GUD = CSV.read("GeneratingUnitsData.csv", DataFrame)
+# Calculate the load for the first hour
+load_FirstHour = Di[1]*LN[i]
+println(load_FirstHour)
 
 m = Model(GLPK.Optimizer)
 
@@ -29,8 +31,10 @@ m = Model(GLPK.Optimizer)
 
 # i is value 1:12
 @variable(m, P[i=1:n])
+@variable(m, D[i=1:n])
 
 @constraint(m, 0 <= P[i] <= Pi_max[i])
+@constraint(m, 0 <= D[i] <= Di[i])
 
 @constraint(m, D[1] - sum(P[i]) = 0) # Only using the first hour from the LoadProfile
 
