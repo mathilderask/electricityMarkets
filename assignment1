@@ -10,19 +10,22 @@ using CSV, DataFrames, JuMP, GLPK
 
 n = 12
 
-df_GUD = CSV.read("GeneratingUnitsData.csv", DataFrame)
-df_LP = CSV.read("LoadProfile.csv", DataFrame)
-df_LN = CSV.read("LoadNodes.csv", DataFrame)
+# Read CSV files and specify column types to ensure Float64 conversion
+df_GUD = CSV.read("GeneratingUnitsData.csv", DataFrame; types=Dict(:Pi_max => Float64, :Ci => Float64))
+df_LP = CSV.read("LoadProfile.csv", DataFrame; types=Dict(Symbol("System_demand_(MW)") => Float64))
+df_LN = CSV.read("LoadNodes.csv", DataFrame; types=Dict(:Percentage_SystemLoad => Float64))
 
-# Extract data from CSV files
-Pi_max = df_GUD[:, :"Pi_max"] # Maximum power output
-Ci = df_GUD[:, :"Ci"] # Production cost
-Di = df_LP[:, :"System demand (MW)"] # Load profile
-LN = df_LN[:, :"Percentage_SystemLoad"] # Load nodes
+# Extract data directly as Float64
+Pi_max = df_GUD[!, :"Pi_max"]  # Maximum power output
+Ci = df_GUD[!, :"Ci"]          # Production cost
+Di = df_LP[!, "System_demand_(MW)"]  # Load profile
+LN = df_LN[!, :"Percentage_SystemLoad"]  # Load node percentages
 
-# Calculate the load for the first hour
-load_FirstHour = Di[1]*LN[i]
-println(load_FirstHour)
+println(typeof(Di[1]))  # Should be Float64, but may be String
+println(typeof(LN[1]))  # Should be Float64, but may be String
+# Compute the load for the first hour
+demand_FirstHour = [Di[1] * LN[i] for i in 1:length(LN)]
+println(demand_FirstHour)
 
 m = Model(GLPK.Optimizer)
 
@@ -32,6 +35,7 @@ m = Model(GLPK.Optimizer)
 # i is value 1:12
 @variable(m, P[i=1:n])
 @variable(m, D[i=1:n])
+# add variable for wind farms
 
 @constraint(m, 0 <= P[i] <= Pi_max[i])
 @constraint(m, 0 <= D[i] <= Di[i])
@@ -40,7 +44,7 @@ m = Model(GLPK.Optimizer)
 
 @objective(m, Min, sum(Ci[i] * P[i] for i = 1:n)) # Price * Production -- Market clearing price
 
-
+"""
 """
 # Define power production and unit commitment variables
 @variable(m, GUD.Pi_min[i] <= p[i=1:num_units] <= GUD.Pi_max[i])  # Power output
@@ -72,3 +76,4 @@ else
     println("Optimize was not succesful. Return code: ", termination_status(m))
 end
 """
+
