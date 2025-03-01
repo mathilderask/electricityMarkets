@@ -20,31 +20,44 @@ Pi_max = df_GUD[!, :"Pi_max"]  # Maximum power output
 Ci = df_GUD[!, :"Ci"]          # Production cost
 Di = df_LP[!, "System_demand_(MW)"]  # Load profile
 LN = df_LN[!, :"Percentage_SystemLoad"]  # Load node percentages
+Dp = df_LN[!, :"U_d"]  # Demand price bids
 
-println(typeof(Di[1]))  # Should be Float64, but may be String
-println(typeof(LN[1]))  # Should be Float64, but may be String
-# Compute the load for the first hour
-demand_FirstHour = [Di[1] * LN[i] for i in 1:length(LN)]
-println(demand_FirstHour)
+# Compute the load for each node in only the first hour
+D_FirstHour = [Di[1] * LN[i] for i in 1:length(LN)]
 
 m = Model(GLPK.Optimizer)
 
 # Add 6 windfarms of 200 MW each
-# Add load % to the LoadProfile
+i=1:length(Pi_max)
+j=1:length(D_FirstHour)
 
-# i is value 1:12
-@variable(m, P[i=1:n])
-@variable(m, D[i=1:n])
+@variable(m, P[i])
+@variable(m, D[j])
 # add variable for wind farms
 
-@constraint(m, 0 <= P[i] <= Pi_max[i])
-@constraint(m, 0 <= D[i] <= Di[i])
+@constraint(m, [k in i], 0 <= P[k] <= Pi_max[k])
+@constraint(m, [k in j], 0 <= D[k] <= D_FirstHour[k])
+@constraint(m, sum(D[k] for k in j) - sum(P[k] for k in i) == 0)
 
-@constraint(m, D[1] - sum(P[i]) = 0) # Only using the first hour from the LoadProfile
+@objective(m, Max, sum(D[k] * Dp[k] for k in j) - sum(P[k] * Ci[k] for k in i))
+#@objective(m, Min, sum(Ci[i] * P[i] for i = 1:n)) # Price * Production -- Market clearing price
+optimize!(m)
+if termination_status(m) == MOI.OPTIMAL
+    println("Objective value: ", JuMP.objective_value(m))
 
-@objective(m, Min, sum(Ci[i] * P[i] for i = 1:n)) # Price * Production -- Market clearing price
+# Extract and print optimal values for x1
+    for i in keys(P)
+        println("P[$i] = ", JuMP.value(P[i]))
+    end
 
-"""
+# Extract and print optimal values for x2
+    for j in keys(D)
+        println("D[$j] = ", JuMP.value(D[j]))
+    end
+else
+    println("Optimize was not succesful. Return code: ", termination_status(m))
+end
+
 """
 # Define power production and unit commitment variables
 @variable(m, GUD.Pi_min[i] <= p[i=1:num_units] <= GUD.Pi_max[i])  # Power output
