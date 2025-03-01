@@ -1,5 +1,3 @@
-# Example
-
 using Pkg
 Pkg.add("CSV")
 Pkg.add("DataFrames")
@@ -7,8 +5,6 @@ Pkg.add("JuMP")
 Pkg.add("GLPK")
 
 using CSV, DataFrames, JuMP, GLPK
-
-n = 12
 
 # Read CSV files and specify column types to ensure Float64 conversion
 df_GUD = CSV.read("GeneratingUnitsData.csv", DataFrame; types=Dict(:Pi_max => Float64, :Ci => Float64))
@@ -27,21 +23,25 @@ D_FirstHour = [Di[1] * LN[i] for i in 1:length(LN)]
 
 m = Model(GLPK.Optimizer)
 
-# Add 6 windfarms of 200 MW each
+
 i=1:length(Pi_max)
 j=1:length(D_FirstHour)
 
 @variable(m, P[i])
 @variable(m, D[j])
-# add variable for wind farms
 
+
+# Constraints
 @constraint(m, [k in i], 0 <= P[k] <= Pi_max[k])
 @constraint(m, [k in j], 0 <= D[k] <= D_FirstHour[k])
-@constraint(m, sum(D[k] for k in j) - sum(P[k] for k in i) == 0)
+# Power Balance constraint
+power_balance = @constraint(m, sum(D[k] for k in j) - sum(P[k] for k in i) == 0)
 
 @objective(m, Max, sum(D[k] * Dp[k] for k in j) - sum(P[k] * Ci[k] for k in i))
-#@objective(m, Min, sum(Ci[i] * P[i] for i = 1:n)) # Price * Production -- Market clearing price
+
+
 optimize!(m)
+
 if termination_status(m) == MOI.OPTIMAL
     println("Objective value: ", JuMP.objective_value(m))
 
@@ -54,39 +54,10 @@ if termination_status(m) == MOI.OPTIMAL
     for j in keys(D)
         println("D[$j] = ", JuMP.value(D[j]))
     end
+    # Compute and print Market Clearing Price (MCP)
+    println("Market Clearing Price (MCP): ", JuMP.dual(power_balance))
 else
-    println("Optimize was not succesful. Return code: ", termination_status(m))
+    println("Optimize was not successful. Return code: ", termination_status(m))
 end
 
-"""
-# Define power production and unit commitment variables
-@variable(m, GUD.Pi_min[i] <= p[i=1:num_units] <= GUD.Pi_max[i])  # Power output
-@variable(m, u[i=1:num_units], Bin)  # Unit on/off status
-
-# Initial conditions (optional, based on Pi_ini and Ui_ini)
-@constraint(m, [i=1:num_units], p[i] >= GUD.Pi_min[i] * u[i])
-@constraint(m, [i=1:num_units], p[i] <= GUD.Pi_max[i] * u[i])
-
-# Ramp rate constraints
-@constraint(m, ramp_up[i=1:num_units], p[i] - GUD.Pi_ini[i] <= GUD.Ri_+[i])
-@constraint(m, ramp_down[i=1:num_units], GUD.Pi_ini[i] - p[i] <= GUD.Ri_-[i])
-
-# Minimum up and down time constraints
-@constraint(m, min_up_time[i=1:num_units], u[i] * GUD.UT[i] <= sum(u[j] for j in 1:num_units))
-@constraint(m, min_down_time[i=1:num_units], (1 - u[i]) * GUD.DT[i] <= sum(1 - u[j] for j in 1:num_units))
-"""
-
-#@objective(m, Min, sum(Ci[i] * P[i] for i = 1:n)) # Price * Production -- Market clearing price
-
-"""
-optimize!(m)
-
-if termination_status(m) == MOI.OPTIMAL
-    println("Objective value: ", JuMP.objective_value(m))
-    println("x1 = ", JuMP.value(x1))
-    println("x2 = ", JuMP.value(x2))
-else
-    println("Optimize was not succesful. Return code: ", termination_status(m))
-end
-"""
 
