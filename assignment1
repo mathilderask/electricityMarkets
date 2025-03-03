@@ -43,7 +43,7 @@ power_balance = @constraint(m, sum(D[k] for k in j) - sum(P[k] for k in i) == 0)
 optimize!(m)
 
 if termination_status(m) == MOI.OPTIMAL
-    println("Objective value: ", JuMP.objective_value(m))
+    println("Optimised social welfare: ", JuMP.objective_value(m))
 
 # Extract and print optimal values for x1
     for i in keys(P)
