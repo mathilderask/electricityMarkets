@@ -56,6 +56,12 @@ if termination_status(m) == MOI.OPTIMAL
     end
     # Compute and print Market Clearing Price (MCP)
     println("Market Clearing Price (MCP): ", JuMP.dual(power_balance))
+
+    println("\nProfits per generator:")
+    for i in 1:length(Pi_max)
+        profit = (MCP - Ci[i]) * JuMP.value(P[i])
+        println("Profit of Generator $i = ", profit)
+    end
 else
     println("Optimize was not successful. Return code: ", termination_status(m))
 end
