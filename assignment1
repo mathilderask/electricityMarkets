@@ -70,6 +70,10 @@ end
 
 
 ########### Utility #############
+MCP = JuMP.dual(power_balance)
 
+for j in keys(D)
+    utility_j = JuMP.value(D[j]) * (Dp[j] - MCP)
+    println("Utility of Demand $j: ", utility_j)
 
 ########### KKT #############
