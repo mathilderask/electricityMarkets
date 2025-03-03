@@ -35,7 +35,7 @@ j=1:length(D_FirstHour)
 @constraint(m, [k in i], 0 <= P[k] <= Pi_max[k])
 @constraint(m, [k in j], 0 <= D[k] <= D_FirstHour[k])
 # Power Balance constraint
-power_balance = @constraint(m, sum(D[k] for k in j) - sum(P[k] for k in i) == 0)
+power_balance = @constraint(m,( sum(D[k] for k in j) - sum(P[k] for k in i))*(-1) == 0)
 
 @objective(m, Max, sum(D[k] * Dp[k] for k in j) - sum(P[k] * Ci[k] for k in i))
 
@@ -60,4 +60,16 @@ else
     println("Optimize was not successful. Return code: ", termination_status(m))
 end
 
+######### Social Welfare ############
 
+
+
+
+######### Profit ##############
+
+
+
+########### Utility #############
+
+
+########### KKT #############
