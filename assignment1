@@ -43,7 +43,7 @@ power_balance = @constraint(m,( sum(D[k] for k in j) - sum(P[k] for k in i))*(-1
 optimize!(m)
 
 if termination_status(m) == MOI.OPTIMAL
-    println("Objective value: ", JuMP.objective_value(m))
+    println("Optimised social welfare: ", JuMP.objective_value(m))
 
 # Extract and print optimal values for x1
     for i in keys(P)
@@ -56,6 +56,12 @@ if termination_status(m) == MOI.OPTIMAL
     end
     # Compute and print Market Clearing Price (MCP)
     println("Market Clearing Price (MCP): ", JuMP.dual(power_balance))
+
+    println("\nProfits per generator:")
+    for i in 1:length(Pi_max)
+        profit = (MCP - Ci[i]) * JuMP.value(P[i])
+        println("Profit of Generator $i = ", profit)
+    end
 else
     println("Optimize was not successful. Return code: ", termination_status(m))
 end
@@ -70,6 +76,10 @@ end
 
 
 ########### Utility #############
+MCP = JuMP.dual(power_balance)
 
+for j in keys(D)
+    utility_j = JuMP.value(D[j]) * (Dp[j] - MCP)
+    println("Utility of Demand $j: ", utility_j)
 
 ########### KKT #############
