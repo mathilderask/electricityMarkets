@@ -7,9 +7,9 @@ Pkg.add("GLPK")
 using CSV, DataFrames, JuMP, GLPK
 
 # Read CSV files and specify column types to ensure Float64 conversion
-df_GUD = CSV.read("GeneratingUnitsData.csv", DataFrame; types=Dict(:Pi_max => Float64, :Ci => Float64))
-df_LP = CSV.read("LoadProfile.csv", DataFrame; types=Dict(Symbol("System_demand_(MW)") => Float64))
-df_LN = CSV.read("LoadNodes.csv", DataFrame; types=Dict(:Percentage_SystemLoad => Float64))
+df_GUD = CSV.read("GeneratingUnitsData.csv", DataFrame; delim=';', types=Dict(:Pi_max => Float64, :Ci => Float64))
+df_LP = CSV.read("LoadProfile.csv", DataFrame; delim=';', types=Dict(Symbol("System_demand_(MW)") => Float64))
+df_LN = CSV.read("LoadNodes.csv", DataFrame;  delim=';', types=Dict(:Percentage_SystemLoad => Float64))
 
 # Extract data directly as Float64
 Pi_max = df_GUD[!, :"Pi_max"]  # Maximum power output
