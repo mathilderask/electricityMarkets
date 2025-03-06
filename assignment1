@@ -49,7 +49,10 @@ optimize!(m)
 
 if termination_status(m) == MOI.OPTIMAL
     println("Objective value: ", JuMP.objective_value(m))
-
+# Extract and print optimal values for wind farms
+for i in keys(W)
+    println("W[$i] = ", JuMP.value(W[i]))
+end
 # Extract and print optimal values for x1
     for i in keys(P)
         println("P[$i] = ", JuMP.value(P[i]))
@@ -64,6 +67,12 @@ if termination_status(m) == MOI.OPTIMAL
     # Compute and print Market Clearing Price (MCP)
     MCP = round(JuMP.dual(power_balance), digits=2)
     println("Market Clearing Price (MCP): ", MCP)
+    # Compute and print profits per wind farm
+    println("\nProfits per wind farm:")
+    for i in 1:length(WF_Prod)
+        profit = (MCP) * JuMP.value(W[i]) # What is the cost of wind energy?
+        println("Profit of Wind Farm $i = ", profit)
+    end
     # Compute and print profits per generator
     println("\nProfits per generator:")
     for i in 1:length(Pi_max)
