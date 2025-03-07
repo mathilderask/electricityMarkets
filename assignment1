@@ -3,6 +3,7 @@ Pkg.add("CSV")
 Pkg.add("DataFrames")
 Pkg.add("JuMP")
 Pkg.add("GLPK")
+Pkg.add("PyPlot")
 
 using CSV, DataFrames, JuMP, GLPK
 
@@ -90,7 +91,6 @@ else
 end
 
 #################### making supply/demand curves for the report ##################
-ENV["MPLBACKEND"] = "TkAgg"
 using PyPlot
 
 demand_prices = Dp  # Demand bid prices ($/MWh)
@@ -112,6 +112,7 @@ supply_quantities = supply_quantities[sorted_supply]
 # Compute cumulative quantities
 cumulative_demand = cumsum(demand_quantities)
 cumulative_supply = cumsum(supply_quantities)
+println(cumulative_demand)
 
 # Plot the curves using PyPlot
 figure(figsize=(7,5))
@@ -128,3 +129,4 @@ legend(loc="best")
 grid(true)
 show()
 
+display(gcf())  # Show current figure

@@ -5,7 +5,7 @@ Pkg.add("JuMP")
 Pkg.add("GLPK")
 Pkg.add("PyPlot")
 
-using CSV, DataFrames, JuMP, GLPK, PyPlot
+using CSV, DataFrames, JuMP, GLPK
 
 # Read CSV files and specify column types to ensure Float64 conversion
 df_GUD = CSV.read("GeneratingUnitsData.csv", DataFrame; delim=';', types=Dict(:Pi_max => Float64, :Ci => Float64))
