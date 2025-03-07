@@ -89,15 +89,42 @@ else
     println("Optimize was not successful. Return code: ", termination_status(m))
 end
 
-######### Social Welfare ############
+#################### making supply/demand curves for the report ##################
+ENV["MPLBACKEND"] = "TkAgg"
+using PyPlot
 
+demand_prices = Dp  # Demand bid prices ($/MWh)
+demand_quantities = D_FirstHour  # Corresponding demand quantities (MWh)
 
+supply_quantities = vcat(Pi_max, WF_Prod) # combine the production capacities of the generators and the wind farm
+supply_costs = vcat(Ci, zeros(length(WF_Prod))) # combine the production costs of the generators and the wind farm
 
+# Sort demand from highest to lowest (forms downward-sloping demand curve)
+sorted_demand = sortperm(demand_prices, rev=true)
+demand_prices = demand_prices[sorted_demand]
+demand_quantities = demand_quantities[sorted_demand]
 
-######### Profit ##############
+# Sort supply from lowest to highest (forms upward-sloping supply curve)
+sorted_supply = sortperm(supply_costs)
+supply_costs = supply_costs[sorted_supply]
+supply_quantities = supply_quantities[sorted_supply]
 
+# Compute cumulative quantities
+cumulative_demand = cumsum(demand_quantities)
+cumulative_supply = cumsum(supply_quantities)
 
+# Plot the curves using PyPlot
+figure(figsize=(7,5))
+#plot(cumulative_demand, demand_prices, marker="o", linestyle="-", color="red", label="Demand Curve")
+#plot(cumulative_supply, supply_costs, marker="s", linestyle="-", color="blue", label="Supply Curve")
+# Demand curve (stepwise with right angles)
+step(cumulative_demand, demand_prices, where="post", marker="o", linestyle="-", color="orange", label="Demand")
+# Supply curve (stepwise with right angles)
+step(cumulative_supply, supply_costs, where="post", marker="o", linestyle="-", color="blue", label="Supply")
+xlabel("Quantity (MW)")
+ylabel("Price (\$/MW)")
+title("Energy Market Supply & Demand")
+legend(loc="best")
+grid(true)
+show()
 
-########### Utility #############
-
-########### KKT #############
