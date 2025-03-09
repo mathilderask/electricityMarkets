@@ -1,0 +1,161 @@
+using Pkg
+Pkg.add("CSV")
+Pkg.add("DataFrames")
+Pkg.add("JuMP")
+Pkg.add("GLPK")
+Pkg.add("PyPlot")
+
+using CSV, DataFrames, JuMP, GLPK
+
+# Read CSV files and specify column types to ensure Float64 conversion
+df_GUD = CSV.read("GeneratingUnitsData.csv", DataFrame; delim=';', types=Dict(:Pi_max => Float64, :Ci => Float64))
+df_LP = CSV.read("LoadProfile.csv", DataFrame; delim=';', types=Dict(Symbol("System_demand_(MW)") => Float64))
+df_LN = CSV.read("LoadNodes.csv", DataFrame;  delim=';', types=Dict(:Percentage_SystemLoad => Float64))
+df_WP = CSV.read("WindFarmData.csv", DataFrame;  delim=';', types=Dict(:Pi_max => Float64))
+df_TL = CSV.read("TransmissionLineDataV2.csv", DataFrame;  delim=';', types=Dict(:From => Int, :To => Int, Symbol("Reactance_PU") => Float64, Symbol("Capacity_MVA") => Float64))
+
+# Extract data directly as Float64
+Pi_max = df_GUD[!, :"Pi_max"]  # Maximum power output
+Ci = df_GUD[!, :"Ci"]          # Production cost
+Di = df_LP[!, "System_demand_(MW)"]  # Load profile
+LN = df_LN[!, :"Percentage_SystemLoad"]  # Load node percentages
+Dp = df_LN[!, :"U_d"]  # Demand price bids
+WF_Prod = df_WP[!, :"Pi_max"] # Wind farm production for the first hour
+
+# From transmission line data
+From_node = df_TL[!, :"From"]
+To_node = df_TL[!, :"To"]
+Reactance_PU = df_TL[!, :"Reactance_PU"]
+Capacity_MVA = df_TL[!, :"Capacity_MVA"] # could maybe include power factor here to convert to MW???
+
+# Compute the load for each node in only the first hour
+D_FirstHour = [Di[1] * LN[i] for i in 1:length(LN)]
+
+m = Model(GLPK.Optimizer)
+
+h=1:length(WF_Prod)
+i=1:length(Pi_max)
+j=1:length(D_FirstHour)
+n=1:length(From_node)
+
+@variable(m, W[h])
+@variable(m, P[i])
+@variable(m, D[j])
+@variable(m, B[n])
+
+
+# Constraints
+@constraint(m, [k in h], 0 <= W[k] <= WF_Prod[k])
+@constraint(m, [k in i], 0 <= P[k] <= Pi_max[k])
+@constraint(m, [k in j], 0 <= D[k] <= D_FirstHour[k])
+
+# Extract unique nodes dynamically
+nodes = unique(vcat(From_node, To_node))
+# Compute susceptance B as the inverse of reactance X
+susceptance = Dict((From_node[i], To_node[i]) => 1 / Reactance_PU[i] for i in eachindex(From_node))
+# Extract capacity values into a dictionary
+capacity = Dict((From_node[i], To_node[i]) => Capacity_MVA[i] for i in eachindex(From_node))
+
+# Define phase angle variables (one per node)
+theta = @variable(m, [n in nodes])
+
+# Reference bus constraint (set phase angle to zero at a reference node)
+ref_node = 13 # given in data set
+@constraint(m, theta[ref_node] == 0)
+# Transmission constraints for power flow limits
+#@constraint(m, [(n, m) in keys(susceptance)],
+#    -capacity[(n, m)] <= susceptance[(n, m)] * (theta[n] - theta[m]) <= capacity[(n, m)]
+#)
+@constraint(m, [(n, l) in keys(susceptance)],
+    @expression(m, susceptance[(n, l)] * (theta[n] - theta[l])) <= capacity[(n, l)]
+)
+
+@constraint(m, [(n, l) in keys(susceptance)], 
+    @expression(m, susceptance[(n, l)] * (theta[n] - theta[l])) >= -capacity[(n, l)]
+)
+# constraint to ensure net power flow is zero
+#@constraint(m, sum(susceptance[(n, m)] * (theta[n] - theta[m]) for (n, m) in keys(susceptance)) == 0)
+
+# **Power Balance Constraint**
+power_balance = @constraint(m, [n in nodes], 
+    (sum(D[k] for k in j if df_LN[!, :"Node"][k] == n)  # Demand at node n
+    - sum(susceptance[(m, n)] * (theta[m] - theta[n]) for m in nodes if (m, n) in keys(susceptance))  #Power flow import
+    + sum(susceptance[(n, m)] * (theta[n] - theta[m]) for m in nodes if (n, m) in keys(susceptance))  #Power flow export
+    - sum(P[k] for k in i if df_GUD[!, :"Node"][k] == n)  # Power Generation at node n
+    - sum(W[k] for k in h if df_WP[!, :"Node"][k] == n))*(-1)  # Wind Generation at node n
+    == 0
+)
+
+
+# Objective function is unchanged from task 1
+@objective(m, Max, sum(D[k] * Dp[k] for k in j) - sum(P[k] * Ci[k] for k in i)) # Objective function. Wind energy not included since cost is assumed to be zero
+
+
+optimize!(m)
+
+if termination_status(m) == MOI.OPTIMAL
+    println("Objective value: ", JuMP.objective_value(m))
+# Extract and print optimal values for wind farms
+for i in keys(W)
+    println("W[$i] = ", JuMP.value(W[i]))
+end
+
+# Extract and print optimal values for wind production
+for i in keys(P)
+    println("P[$i] = ", JuMP.value(P[i]))
+end
+
+# Extract and print optimal values for demand
+    for j in keys(D)
+        println("D[$j] = ", JuMP.value(D[j]))
+    end
+    # Compute and print maximised social welfare
+    println("Optimised social welfare: ", JuMP.objective_value(m))
+    # Compute and print Market Clearing Price (MCP) for all nodes
+    println("Market Clearing Prices (MCP) for all nodes:")
+    for n in nodes
+        MCP = round(JuMP.dual(power_balance[n]), digits=2)
+        println("MCP of Node $n: $MCP")
+    end
+
+    # Compute and print optimised power flow between nodes
+        println("Optimized Power Flow Between Nodes:")
+    for (n, m) in keys(susceptance)
+        power_flow = round(susceptance[(n, m)] * (value(theta[n]) - value(theta[m])), digits=2)
+        println("Flow from Node $n to Node $m: $power_flow MW")
+    end
+
+    println("Power Balance Check for Each Node:")
+    for n in nodes
+        production = sum(value(P[k]) for k in i if df_GUD[!, :"Node"][k] == n; init=0)  # Generation at node n
+        wind = sum(value(W[k]) for k in h if df_WP[!, :"Node"][k] == n; init=0)  # Wind generation at node n
+        consumption = sum(value(D[k]) for k in j if df_LN[!, :"Node"][k] == n; init=0)  # Demand at node n
+        imports = sum(value(susceptance[(m, n)] * (value(theta[m]) - value(theta[n]))) for m in nodes if (m, n) in keys(susceptance); init=0)  # Imports
+        exports = sum(value(susceptance[(n, m)] * (value(theta[n]) - value(theta[m]))) for m in nodes if (n, m) in keys(susceptance); init=0)  # Exports
+        
+        net_balance = production + wind - consumption + imports - exports  # Net power balance
+
+        println("Node $n: Production = $production, Wind = $wind, Consumption = $consumption, Imports = $imports, Exports = $exports, Net Balance = $net_balance")
+    end
+
+    #TODO - Add all profits based on their individual market clearing prices
+    # Compute and print profits per wind farm
+    #println("\nProfits per wind farm:")
+    #for i in 1:length(WF_Prod)
+    #    profit = (MCP) * JuMP.value(W[i]) # What is the cost of wind energy?
+    #    println("Profit of Wind Farm $i = ", profit)
+    #end
+    # Compute and print profits per generator
+    #println("\nProfits per generator:")
+    #for i in 1:length(Pi_max)
+    #    profit = (MCP - Ci[i]) * JuMP.value(P[i])
+    #    println("Profit of Generator $i = ", profit)
+    #end
+    # Compute and print utility per demand
+    #for j in 1:length(D)
+    #    utility_j = JuMP.value(D[j]) * (Dp[j] - MCP)
+    #    println("Utility of Demand $j: ", utility_j)
+    #end
+else
+    println("Optimize was not successful. Return code: ", termination_status(m))
+end
