@@ -1,0 +1,126 @@
+using Pkg
+    Pkg.add("CSV")
+    Pkg.add("DataFrames")
+    Pkg.add("JuMP")
+    Pkg.add("GLPK")
+    Pkg.add("PyPlot")
+
+using CSV, DataFrames, JuMP, GLPK
+
+# Read CSV files and specify column types to ensure Float64 conversion
+df_GUD = CSV.read("GeneratingUnitsData.csv", DataFrame; delim=';', types=Dict(:Pi_max => Float64, :Ci => Float64))
+df_LP = CSV.read("LoadProfile.csv", DataFrame; delim=';', types=Dict(Symbol("System_demand_(MW)") => Float64))
+df_LN = CSV.read("LoadNodes.csv", DataFrame;  delim=';', types=Dict(:Percentage_SystemLoad => Float64))
+df_WP = CSV.read("WindFarmData.csv", DataFrame;  delim=';', types=Dict(:Pi_max => Float64))
+df_TL = CSV.read("TransmissionLineDataV2.csv", DataFrame;  delim=';', types=Dict(:From => Int, :To => Int, Symbol("Reactance_PU") => Float64, Symbol("Capacity_MVA") => Float64))
+
+# Extract data directly as Float64
+Pi_max = df_GUD[!, :"Pi_max"]  # Maximum power output
+Ci = df_GUD[!, :"Ci"]          # Production cost
+Di = df_LP[!, "System_demand_(MW)"]  # Load profile
+LN = df_LN[!, :"Percentage_SystemLoad"]  # Load node percentages
+Dp = df_LN[!, :"U_d"]  # Demand price bids
+WF_Prod = df_WP[!, :"Pi_max"] # Wind farm production for the first hour
+
+# From transmission line data
+From_node = df_TL[!, :"From"]
+To_node = df_TL[!, :"To"]
+Reactance_PU = df_TL[!, :"Reactance_PU"]
+Capacity_MVA = df_TL[!, :"Capacity_MVA"] # could maybe include power factor here to convert to MW???
+
+# Compute the load for each node in only the first hour
+D_FirstHour = [Di[1] * LN[i] for i in 1:length(LN)]
+function MCP_calculate(constrained_node, constraint)   
+    m = Model(GLPK.Optimizer)
+
+    h=1:length(WF_Prod)
+    i=1:length(Pi_max)
+    j=1:length(D_FirstHour)
+    n=1:length(From_node)
+
+    JuMP.@variable(m, W[h])
+    JuMP.@variable(m, P[i])
+    JuMP.@variable(m, D[j])
+    JuMP.@variable(m, B[n])
+
+    # Constraints
+    JuMP.@constraint(m, [k in h], 0 <= W[k] <= WF_Prod[k])
+    JuMP.@constraint(m, [k in i], 0 <= P[k] <= Pi_max[k])
+    JuMP.@constraint(m, [k in j], 0 <= D[k] <= D_FirstHour[k])
+
+    # Extract unique nodes dynamically
+    nodes = unique(vcat(From_node, To_node))
+    # Compute susceptance B as the inverse of reactance X
+    susceptance = Dict((From_node[i], To_node[i]) => 1 / Reactance_PU[i] for i in eachindex(From_node))
+    # Extract capacity values into a dictionary
+    capacity = Dict((From_node[i], To_node[i]) => Capacity_MVA[i] for i in eachindex(From_node))
+    capacity[(constrained_node)] = constraint
+    # Define phase angle variables (one per node)
+    theta = JuMP.@variable(m, [n in nodes])
+
+    # Reference bus constraint (set phase angle to zero at a reference node)
+    ref_node = 13 # given in data set
+    JuMP.@constraint(m, theta[ref_node] == 0)
+    # Transmission constraints for power flow limits
+    #@constraint(m, [(n, m) in keys(susceptance)],
+    #    -capacity[(n, m)] <= susceptance[(n, m)] * (theta[n] - theta[m]) <= capacity[(n, m)]
+    #)
+    JuMP.@constraint(m, [(n, l) in keys(susceptance)],
+        JuMP.@expression(m, susceptance[(n, l)] * (theta[n] - theta[l])) <= capacity[(n, l)]
+    )
+
+    JuMP.@constraint(m, [(n, l) in keys(susceptance)], 
+        JuMP.@expression(m, susceptance[(n, l)] * (theta[n] - theta[l])) >= -capacity[(n, l)]
+    )
+    # **Power Balance Constraint**
+    power_balance = JuMP.@constraint(m, [n in nodes], 
+        (sum(D[k] for k in j if df_LN[!, :"Node"][k] == n)  # Demand at node n
+        - sum(susceptance[(m, n)] * (theta[m] - theta[n]) for m in nodes if (m, n) in keys(susceptance))  #Power flow import
+        + sum(susceptance[(n, m)] * (theta[n] - theta[m]) for m in nodes if (n, m) in keys(susceptance))  #Power flow export
+        - sum(P[k] for k in i if df_GUD[!, :"Node"][k] == n)  # Power Generation at node n
+        - sum(W[k] for k in h if df_WP[!, :"Node"][k] == n))*(-1)  # Wind Generation at node n
+        == 0
+    )
+
+
+    # Objective function is unchanged from task 1
+    JuMP.@objective(m, Max, sum(D[k] * Dp[k] for k in j) - sum(P[k] * Ci[k] for k in i)) # Objective function. Wind energy not included since cost is assumed to be zero
+
+
+    optimize!(m)
+
+    if termination_status(m) == MOI.OPTIMAL
+        println("Objective value: ", JuMP.objective_value(m))
+        MCP_list = [round(JuMP.dual(power_balance[n]), digits=2) for n in nodes]
+        sorted_indices = sortperm(nodes)  # Get sorted indices
+        sorted_nodes = nodes[sorted_indices]  # Sort nodes
+        sorted_MCP_list = MCP_list[sorted_indices]
+    else
+        println("Optimize was not successful. Return code: ", termination_status(m))
+        MCP_list = "Optimize was not successful."
+    end
+    return sorted_nodes, sorted_MCP_list
+end
+
+
+########## Plot the different MCP for each node ###########
+
+using PyPlot
+# no constraint
+nodes_1, MCP_list_1 = MCP_calculate((1, 2), 175) # no constraint added, data is unconstrained
+nodes_2, MCP_list_2 = MCP_calculate((10, 11), 80) # constraint added to node 10
+nodes_3, MCP_list_3 = MCP_calculate((15, 21), 450) # constraint added to node 15
+
+figure(figsize=(10,5))
+plot(nodes_1, MCP_list_1, marker="o", linestyle="-", color="b", label="Unconstrained")
+plot(nodes_2, MCP_list_2, marker="o", linestyle="-", color="r", label="Constrain line between nodes 10-11")
+plot(nodes_3, MCP_list_3, marker="o", linestyle="-", color="g", label="Constrain line between nodes 15-21")
+xlabel("Nodes")
+ylabel("Market Clearing Price (\$/MWh)")
+title("Market Clearing Prices Across Nodes")
+xticks(nodes_1)  # Forces ticks at each node
+grid(true, which="both", linestyle="--", alpha=0.7)  # Enable grid with dashed lines
+legend()
+show()
+display(gcf())  # Show current figure
+

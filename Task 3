@@ -62,20 +62,14 @@ theta = @variable(m, [n in nodes])
 # Reference bus constraint (set phase angle to zero at a reference node)
 ref_node = 13 # given in data set
 @constraint(m, theta[ref_node] == 0)
-# Transmission constraints for power flow limits
-#@constraint(m, [(n, m) in keys(susceptance)],
-#    -capacity[(n, m)] <= susceptance[(n, m)] * (theta[n] - theta[m]) <= capacity[(n, m)]
-#)
+
+# Upper and lower constraints on power flow limits for transmission lines
 @constraint(m, [(n, l) in keys(susceptance)],
     @expression(m, susceptance[(n, l)] * (theta[n] - theta[l])) <= capacity[(n, l)]
 )
-
 @constraint(m, [(n, l) in keys(susceptance)], 
     @expression(m, susceptance[(n, l)] * (theta[n] - theta[l])) >= -capacity[(n, l)]
 )
-# constraint to ensure net power flow is zero
-#@constraint(m, sum(susceptance[(n, m)] * (theta[n] - theta[m]) for (n, m) in keys(susceptance)) == 0)
-
 # **Power Balance Constraint**
 power_balance = @constraint(m, [n in nodes], 
     (sum(D[k] for k in j if df_LN[!, :"Node"][k] == n)  # Demand at node n
@@ -137,25 +131,11 @@ end
 
         println("Node $n: Production = $production, Wind = $wind, Consumption = $consumption, Imports = $imports, Exports = $exports, Net Balance = $net_balance")
     end
-
-    #TODO - Add all profits based on their individual market clearing prices
-    # Compute and print profits per wind farm
-    #println("\nProfits per wind farm:")
-    #for i in 1:length(WF_Prod)
-    #    profit = (MCP) * JuMP.value(W[i]) # What is the cost of wind energy?
-    #    println("Profit of Wind Farm $i = ", profit)
-    #end
-    # Compute and print profits per generator
-    #println("\nProfits per generator:")
-    #for i in 1:length(Pi_max)
-    #    profit = (MCP - Ci[i]) * JuMP.value(P[i])
-    #    println("Profit of Generator $i = ", profit)
-    #end
-    # Compute and print utility per demand
-    #for j in 1:length(D)
-    #    utility_j = JuMP.value(D[j]) * (Dp[j] - MCP)
-    #    println("Utility of Demand $j: ", utility_j)
-    #end
 else
     println("Optimize was not successful. Return code: ", termination_status(m))
 end
+
+
+
+
+
