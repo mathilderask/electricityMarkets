@@ -1,9 +1,9 @@
 using Pkg
-Pkg.add("CSV")
-Pkg.add("DataFrames")
-Pkg.add("JuMP")
-Pkg.add("GLPK")
-Pkg.add("PyPlot")
+#Pkg.add("CSV")
+#Pkg.add("DataFrames")
+#Pkg.add("JuMP")
+#Pkg.add("GLPK")
+#Pkg.add("PyPlot")
 
 
 using CSV, DataFrames, JuMP, GLPK
@@ -21,6 +21,8 @@ Di = df_LP[!, "System_demand_(MW)"]  # Load profile
 LN = df_LN[!, :"Percentage_SystemLoad"]  # Load node percentages
 Dp = df_LN[!, :"U_d"]  # Demand price bids
 WF_Prod = df_WP[!, :"Pi_max"] # Wind farm production for the first hour
+
+df_GUD[8, :Pi_max] = 0.0
 
 # Compute the load for each node in only the first hour
 Di_first = Di[1]
@@ -95,6 +97,7 @@ end
 
 #################### making supply/demand curves for the report ##################
 using PyPlot
+PyPlot.svg(true)  # Enable SVG backend for better plot rendering
 
 demand_prices = Dp  # Demand bid prices ($/MWh)
 demand_quantities = D_FirstHour  # Corresponding demand quantities (MWh)
@@ -122,14 +125,13 @@ figure(figsize=(7,5))
 #plot(cumulative_demand, demand_prices, marker="o", linestyle="-", color="red", label="Demand Curve")
 #plot(cumulative_supply, supply_costs, marker="s", linestyle="-", color="blue", label="Supply Curve")
 # Demand curve (stepwise with right angles)
-steps(cumulative_demand, demand_prices, where="post", marker="o", linestyle="-", color="orange", label="Demand")
+plot(cumulative_demand, demand_prices, drawstyle="steps-post", marker="o", linestyle="-", color="orange", label="Demand")
 # Supply curve (stepwise with right angles)
-steps(cumulative_supply, supply_costs, where="post", marker="o", linestyle="-", color="blue", label="Supply")
+plot(cumulative_supply, supply_costs, drawstyle="steps-post", marker="o", linestyle="-", color="blue", label="Supply")
 xlabel("Quantity (MW)")
 ylabel("Price (\$/MW)")
 title("Energy Market Supply & Demand")
 legend(loc="best")
 grid(true)
-show()
-
-display(gcf())  # Show current figure
+gcf()  # Show current figure
+# savefig("supply_demand_curves.svg")  # Save figure to file
