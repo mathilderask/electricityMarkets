@@ -1,9 +1,9 @@
 using Pkg
-Pkg.add("CSV")
-Pkg.add("DataFrames")
-Pkg.add("JuMP")
-Pkg.add("GLPK")
-Pkg.add("PyPlot")
+#Pkg.add("CSV")
+#Pkg.add("DataFrames")
+#Pkg.add("JuMP")
+#Pkg.add("GLPK")
+#Pkg.add("PyPlot")
 
 
 using CSV, DataFrames, JuMP, GLPK

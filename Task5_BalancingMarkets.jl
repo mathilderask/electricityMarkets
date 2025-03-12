@@ -22,116 +22,124 @@ LN = df_LN[!, :"Percentage_SystemLoad"]  # Load node percentages
 Dp = df_LN[!, :"U_d"]  # Demand price bids
 WF_Prod = df_WP[!, :"Pi_max"] # Wind farm production for the first hour
 
-df_GUD[8, :Pi_max] = 0.0
+# Store original values before imbalances
+Pi_max_original = copy(df_GUD[!, :Pi_max])
+WF_Prod_original = copy(WF_Prod)
 
-# Compute the load for each node in only the first hour
-Di_first = Di[1]
-D_FirstHour = [Di_first * LN[i] for i in eachindex(LN)]
+# -----------------------IMBALANCES--------------------------
+# Unexpected failure of Generator 8
+df_GUD[8, :Pi_max] = 0.0 
 
-m = Model(GLPK.Optimizer)
+# Deficit in wind production
+WF_Prod[1] = WF_Prod[1] * 0.9
+WF_Prod[2] = WF_Prod[2] * 0.9
+WF_Prod[3] = WF_Prod[3] * 0.9
 
-h = 1:length(WF_Prod)
-i = 1:length(Pi_max)
-j = 1:length(D_FirstHour)
+# Excess in wind production
+WF_Prod[4] = WF_Prod[4] * 1.15
+WF_Prod[5] = WF_Prod[5] * 1.15
+WF_Prod[6] = WF_Prod[6] * 1.15
+#-------------------------------------------------------------
+function run_market_model(Pi_max, WF_Prod, Ci, Di_first, LN, Dp)
 
-@variable(m, W[h])
-@variable(m, P[i])
-@variable(m, D[j])
+    D_FirstHour = [Di_first * LN[i] for i in eachindex(LN)]
 
+    m = Model(GLPK.Optimizer)
+    h = 1:length(WF_Prod)
+    i = 1:length(Pi_max)
+    j = 1:length(D_FirstHour)
 
+    @variable(m, W[h])
+    @variable(m, P[i])
+    @variable(m, D[j])
 
-# Constraints
-@constraint(m, [k in h], 0 <= W[k] <= WF_Prod[k])
-@constraint(m, [k in i], 0 <= P[k] <= Pi_max[k])
-@constraint(m, [k in j], 0 <= D[k] <= D_FirstHour[k])
-# Power Balance constraint
-power_balance = @constraint(m,( sum(D[k] for k in j) - sum(P[k] for k in i) - sum(W[k] for k in h))*(-1) == 0)
+    @constraint(m, [k in h], 0 <= W[k] <= WF_Prod[k])
+    @constraint(m, [k in i], 0 <= P[k] <= Pi_max[k])
+    @constraint(m, [k in j], 0 <= D[k] <= D_FirstHour[k])
+    power_balance = @constraint(m,( sum(D[k] for k in j) - sum(P[k] for k in i) - sum(W[k] for k in h))*(-1) == 0)
 
-@objective(m, Max, sum(D[k] * Dp[k] for k in j) - sum(P[k] * Ci[k] for k in i)) # Objective function. Wind energy not included since cost is assumed to be zero
+    @objective(m, Max, sum(D[k] * Dp[k] for k in j) - sum(P[k] * Ci[k] for k in i))
 
+    optimize!(m)
 
-optimize!(m)
-
-
-if termination_status(m) == MOI.OPTIMAL
-    println("Objective value: ", JuMP.objective_value(m))
-# Extract and print optimal values for wind farms
-for i in eachindex(W)
-    println("W[$i] = ", JuMP.value(W[i]))
-end
-# Extract and print optimal values for x1
-    for i in eachindex(P)
-        println("P[$i] = ", JuMP.value(P[i]))
+    if termination_status(m) == MOI.OPTIMAL
+        MCP = round(JuMP.dual(power_balance), digits=2)
+        profits_wind = [(MCP) * JuMP.value(W[i]) for i in h]
+        profits_gen = [(MCP - Ci[i]) * JuMP.value(P[i]) for i in i]
+        welfare = JuMP.objective_value(m)
+        return profits_wind, profits_gen, welfare
+    else
+        println("Optimization failed: ", termination_status(m))
+        return [], [], 0.0
     end
-
-# Extract and print optimal values for x2
-    for j in eachindex(D)
-        println("D[$j] = ", JuMP.value(D[j]))
-    end
-    # Compute and print maximised social welfare
-    println("Optimised social welfare: ", JuMP.objective_value(m))
-    # Compute and print Market Clearing Price (MCP)
-    MCP = round(JuMP.dual(power_balance), digits=2)
-    println("Market Clearing Price (MCP): ", MCP)
-    # Compute and print profits per wind farm
-    println("\nProfits per wind farm: ")
-    for i in 1:length(WF_Prod)
-        profit = (MCP) * JuMP.value(W[i]) # What is the cost of wind energy?
-        println("Profit of Wind Farm $i = ", profit)
-    end
-    # Compute and print profits per generator
-    println("\nProfits per generator: ")
-    for i in 1:length(Pi_max)
-        profit = (MCP - Ci[i]) * JuMP.value(P[i])
-        println("Profit of Generator $i = ", profit)
-    end
-    # Compute and print utility per demand
-    for j in 1:length(D)
-        utility_j = JuMP.value(D[j]) * (Dp[j] - MCP)
-        println("Utility of Demand $j: ", utility_j)
-    end
-
-else
-    println("Optimize was not successful. Return code: ", termination_status(m))
 end
 
-#################### making supply/demand curves for the report ##################
+# ----------------------------------------------
+# Run market model without imbalances
+profits_wind_noimb, profits_gen_noimb, welfare_noimb = run_market_model(
+    Pi_max_original, WF_Prod_original, Ci, Di_first, LN, Dp)
+
+# Run market model with imbalances (after applying them above)
+profits_wind_imb, profits_gen_imb, welfare_imb = run_market_model(
+    df_GUD[!, :Pi_max], WF_Prod, Ci, Di_first, LN, Dp)
+#----------------------------------------------
 using PyPlot
-PyPlot.svg(true)  # Enable SVG backend for better plot rendering
 
-demand_prices = Dp  # Demand bid prices ($/MWh)
-demand_quantities = D_FirstHour  # Corresponding demand quantities (MWh)
+# Combine profits (sum of wind and generators)
+total_profits_noimb = sum(profits_wind_noimb) + sum(profits_gen_noimb)
+total_profits_imb = sum(profits_wind_imb) + sum(profits_gen_imb)
 
-supply_quantities = vcat(Pi_max, WF_Prod) # combine the production capacities of the generators and the wind farm
-supply_costs = vcat(Ci, zeros(length(WF_Prod))) # combine the production costs of the generators and the wind farm
+# Bar plot
+labels = ["Without Imbalances", "With Imbalances"]
+profits = [total_profits_noimb, total_profits_imb]
 
-# Sort demand from highest to lowest (forms downward-sloping demand curve)
-sorted_demand = sortperm(demand_prices, rev=true)
-demand_prices = demand_prices[sorted_demand]
-demand_quantities = demand_quantities[sorted_demand]
+figure(figsize=(6, 5))
+bar(labels, profits, color=["green", "red"])
+ylabel("Total Market Profits (\$)")
+title("Total Profits With and Without Imbalances")
+grid(true, axis="y")
+gcf()  # Show figure
+# savefig("profits_comparison.svg")
 
-# Sort supply from lowest to highest (forms upward-sloping supply curve)
-sorted_supply = sortperm(supply_costs)
-supply_costs = supply_costs[sorted_supply]
-supply_quantities = supply_quantities[sorted_supply]
 
-# Compute cumulative quantities
-cumulative_demand = cumsum(demand_quantities)
-cumulative_supply = cumsum(supply_quantities)
-println(cumulative_demand)
+# Per generator and per wind farm profits (example with just generators)
+figure(figsize=(10, 5))
+bar(1:length(profits_gen_noimb), profits_gen_noimb, width=0.4, label="No Imbalances", align="center", color="green")
+bar((1:length(profits_gen_imb)) .+ 0.4, profits_gen_imb, width=0.4, label="With Imbalances", align="center", color="blue")
+xlabel("Generators")
+ylabel("Profits (\$)")
+title("Generator Profits With and Without Imbalances")
+legend()
+grid(true, axis="y")
+gcf()
 
-# Plot the curves using PyPlot
-figure(figsize=(7,5))
-#plot(cumulative_demand, demand_prices, marker="o", linestyle="-", color="red", label="Demand Curve")
-#plot(cumulative_supply, supply_costs, marker="s", linestyle="-", color="blue", label="Supply Curve")
-# Demand curve (stepwise with right angles)
-plot(cumulative_demand, demand_prices, drawstyle="steps-post", marker="o", linestyle="-", color="orange", label="Demand")
-# Supply curve (stepwise with right angles)
-plot(cumulative_supply, supply_costs, drawstyle="steps-post", marker="o", linestyle="-", color="blue", label="Supply")
-xlabel("Quantity (MW)")
-ylabel("Price (\$/MW)")
-title("Energy Market Supply & Demand")
-legend(loc="best")
-grid(true)
-gcf()  # Show current figure
-# savefig("supply_demand_curves.svg")  # Save figure to file
+# --------------- PLOT 2
+
+using PyPlot
+
+# Number of wind farms
+n_windfarms = length(WF_Prod)
+
+# Bar width
+bar_width = 0.35
+
+# X-axis positions
+x = 1:n_windfarms
+
+# Plot bar plot
+figure(figsize=(8, 5))
+bar(x .- bar_width/2, profits_wind_noimb, width=bar_width, label="Without Imbalances", color="green")
+bar(x .+ bar_width/2, profits_wind_imb, width=bar_width, label="With Imbalances", color="blue")
+
+# Labels and title
+xlabel("Wind Farm Number")
+ylabel("Profit (\$)")
+title("Wind Farm Profits With and Without Imbalances")
+xticks(x)  # Set x-axis labels to wind farm numbers
+legend()
+grid(true, axis="y")
+gcf()  # Show figure
+# savefig("windfarm_profits_comparison.svg")  # Optional: Save figure
+
+
+# --------------- PLOT 3
