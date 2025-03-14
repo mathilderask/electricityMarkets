@@ -30,12 +30,12 @@ WF_Prod_original = copy(WF_Prod)
 # Unexpected failure of Generator 8
 df_GUD[8, :Pi_max] = 0.0 
 
-# Deficit in wind production
+# Deficit in wind production - 10% reduction
 WF_Prod[1] = WF_Prod[1] * 0.9
 WF_Prod[2] = WF_Prod[2] * 0.9
 WF_Prod[3] = WF_Prod[3] * 0.9
 
-# Excess in wind production
+# Excess in wind production - 15% increase
 WF_Prod[4] = WF_Prod[4] * 1.15
 WF_Prod[5] = WF_Prod[5] * 1.15
 WF_Prod[6] = WF_Prod[6] * 1.15
@@ -83,6 +83,9 @@ profits_wind_noimb, profits_gen_noimb, welfare_noimb = run_market_model(
 profits_wind_imb, profits_gen_imb, welfare_imb = run_market_model(
     df_GUD[!, :Pi_max], WF_Prod, Ci, Di_first, LN, Dp)
 #----------------------------------------------
+
+
+#---------------------- PLOT 1 ----------------------
 using PyPlot
 
 # Combine profits (sum of wind and generators)
@@ -113,7 +116,7 @@ legend()
 grid(true, axis="y")
 gcf()
 
-# --------------- PLOT 2
+# --------------- PLOT 2 ----------------------------
 
 using PyPlot
 
@@ -142,4 +145,4 @@ gcf()  # Show figure
 # savefig("windfarm_profits_comparison.svg")  # Optional: Save figure
 
 
-# --------------- PLOT 3
+# --------------- PLOT 3 ----------------------------
