@@ -29,7 +29,7 @@ Max_energy = 250.00 # Maximum energy capacity of the BESS (MWh)
 Max_power = 250.00 # Nominal power of the BESS (MW)  
 eta_ch = 0.98 # Charging efficiency of the BESS
 eta_dis = 0.97 # Discharging efficiency of the BESS
-SOC_init = 250.0 # Initial state-of-charge (SOC) of the BESS (MWh)
+SOC_init = 0.0 # Initial state-of-charge (SOC) of the BESS (MWh)
 
 # Initialize the model
 m = Model(GLPK.Optimizer)
@@ -48,7 +48,7 @@ H = 1:size(WF_Prod, 2)
 @variable(m, 0 <= SOC[T] <= Max_energy)
 
 # Power balance constraint
-@constraint(m, PowerBalance[t in T], sum(D[j, t] for j in J) - sum(P[i, t] for i in I) - sum(W[h, t] for h in H) - P_dis[t] + P_ch[t] == 0)
+@constraint(m, power_balance[t in T], sum(D[j, t] for j in J) - sum(P[i, t] for i in I) - sum(W[h, t] for h in H) - P_dis[t] + P_ch[t] == 0)
 
 # Constraints
 for t in T
@@ -121,6 +121,8 @@ if termination_status(m) == MOI.OPTIMAL
     total_power_per_generator = [sum(value(P[i, t]) for t in T) for i in I]
     println("Total power delivered by each conventional generator (MWh): ", [round(p, digits=2) for p in total_power_per_generator])
     println("SOC over time: ", [round(value(SOC[t]), digits=2) for t in T])
+    #println("Hourly BESS Charging Power (MW): ", [round(value(P_ch[t]), digits=2) for t in T])
+    #println("Hourly BESS Discharging Power (MW): ", [round(value(P_dis[t]), digits=2) for t in T])
 
     
 else
