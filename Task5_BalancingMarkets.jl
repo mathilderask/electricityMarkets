@@ -40,6 +40,31 @@ WF_Prod[4] = WF_Prod[4] * 1.15
 WF_Prod[5] = WF_Prod[5] * 1.15
 WF_Prod[6] = WF_Prod[6] * 1.15
 #-------------------------------------------------------------
+
+#----------------- UPWARD / DOWNWARD REGULATION -----------------
+# Each flexible generator offers upward regulation service at a price equal to the day-ahead price plus 10% of its production cost
+# It also offers downward regulation service at a price equeal to the day-ahead price minus 15% of its production cost
+# Load curtailment cost is 500 USD/MWh
+
+# Upward regulation price
+Ci_upward = Ci .+ 0.1 .* Ci
+
+# Downward regulation price
+Ci_downward = Ci .- 0.15 .* Ci
+
+# Load curtailment cost
+Ci_curtailment = 500.0
+
+# ---------------------------------------------------------------
+# Clear the balancing market for hour 9 and derive the balancing price. 
+# Then, calculate the total profit (in both day-ahead and balancing markets) of all conventional generators and wind farms in the given hour, assuming the imbalance costs are not included in the profits. settlement follows: (1) One-price scheme, (2) Two-price scheme
+
+
+
+#-------------------------------------------------------------
+
+Di_first = Di[1]  # First hour demand
+
 function run_market_model(Pi_max, WF_Prod, Ci, Di_first, LN, Dp)
 
     D_FirstHour = [Di_first * LN[i] for i in eachindex(LN)]
@@ -83,6 +108,9 @@ profits_wind_noimb, profits_gen_noimb, welfare_noimb = run_market_model(
 profits_wind_imb, profits_gen_imb, welfare_imb = run_market_model(
     df_GUD[!, :Pi_max], WF_Prod, Ci, Di_first, LN, Dp)
 #----------------------------------------------
+
+
+
 
 
 #---------------------- PLOT 1 ----------------------
