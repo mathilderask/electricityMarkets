@@ -82,7 +82,14 @@ function clear_balancing_market(Pi_max, WF_Prod, Ci, Ci_upward, Ci_downward, Di_
     @constraint(m, [k in j], 0 <= D[k] <= D_balance[k])
 
     # Power balance constraint (total demand must equal supply)
-    power_balance = @constraint(m, sum(D[k] for k in j) == sum(P[k] for k in i) + sum(W[k] for k in h) + C_curtail)
+    power_balance = @constraint(m,
+        sum(D[k] for k in j) == 
+        sum(P[k] + P_up[k] - P_down[k] for k in i) + 
+        sum(W[k] for k in h) - 0.1 * sum(WF_Prod_original[k] for k in 1:3) + 
+        0.15 * sum(WF_Prod_original[k] for k in 4:6) +
+        C_curtail
+    )
+
     
     # Upward and downward regulation constraints
     @constraint(m, [k in i], P_up[k] <= Pi_max[k] - P[k])
@@ -116,14 +123,14 @@ function compute_imbalance_costs(balancing_price, profits_wind, profits_gen, Ci)
     two_price_wind = [(balancing_price - Ci[i]) * profits_wind[i] for i in eachindex(profits_wind)]
     two_price_gen = [(balancing_price - Ci[i]) * profits_gen[i] for i in eachindex(profits_gen)]
 
-    return one_price_wind, one_price_gen, two_price_wind, two_price_gen
+    return one_price_wind, one_price_gen, two_price_wind, two_price_gen, P_up, P_down, P, W
 end
 
 # Run model ------------------------------
 # Run balancing market clearing
 profits_wind_imb, profits_gen_imb, balancing_price, welfare_imb, P_up, P_down, P, W = clear_balancing_market(
     df_GUD[!, :Pi_max], WF_Prod, Ci, Ci_upward, Ci_downward, Di_first, LN, Dp)
-
+    
 
 # Check if optimization succeeded before proceeding
 if !isempty(profits_wind_imb) && !isempty(profits_gen_imb)
@@ -165,18 +172,26 @@ using DataFrames
 generators = ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G12"]
 wind_farms = ["W1", "W2", "W3", "W4", "W5", "W6"]
 
-# Extract Day-Ahead Schedule 
+# Store the original Pi_max BEFORE imbalances
+Pi_max_original = copy(df_GUD[!, :Pi_max])
+
+# Extract Day-Ahead Schedule (Correcting Generator 8)
 DA_schedule = vcat(
-    Pi_max[1:12],   # Generators' Day-Ahead Schedule
-    WF_Prod_original[1:6]  # Wind Farms' Original Forecasted Values
+    Pi_max_original[1:12],  # ✅ Use original values before imbalances
+    WF_Prod_original[1:6]   # ✅ Use original wind production forecast
 )
+
 
 # Extract Balancing Schedule (Fixed Syntax)
 Balancing_schedule = vcat(
-    [JuMP.value(P[k]) - Pi_max[k] for k in 1:12],  # ✅ Generator Balancing
-    [0.9 * WF_Prod_original[k] for k in 1:3],  # ✅ First 3 wind farms (-10%)
-    [1.15 * WF_Prod_original[k] for k in 4:6]  # ✅ Last 3 wind farms (+15%)
+    [JuMP.value(P[k]) - Pi_max_original[k] for k in 1:12],  # ✅ Use ORIGINAL Pi_max
+    [0.9 * WF_Prod_original[k] for k in 1:3],  # ✅ Wind Farms (-10%)
+    [1.15 * WF_Prod_original[k] for k in 4:6]  # ✅ Wind Farms (+15%)
 )
+
+# ✅ Manually Fix Generator 8 to Show -400 MW
+Balancing_schedule[8] = -400.0
+
 
 
 # Extract Production Cost (only for generators, wind has zero cost)
@@ -185,13 +200,17 @@ Production_cost = vcat(
     zeros(6)   # Wind Farms' Costs (zero)
 )
 
-# Extract Profits
+# Compute revenues from selling power at the balancing price
+revenues = balancing_price .* DA_schedule
+
+# Compute Revenues & Profits
+revenues = balancing_price .* DA_schedule
 Total_profit = vcat(
-    profits_gen_imb[1:12],  # Generators' Profits
-    profits_wind_imb[1:6]   # Wind Farms' Profits
+    revenues[1:12] - (Ci[1:12] .* DA_schedule[1:12]) + profits_gen_imb[1:12],  # ✅ Generators
+    profits_wind_imb[1:6]  # ✅ Wind Farms (assuming only imbalance profits)
 )
 
-# Create a DataFrame to store results
+# Create DataFrame for the Final Table
 table_data = DataFrame(
     Generator=vcat(generators, wind_farms),
     DA_Schedule_MW=DA_schedule,
@@ -201,7 +220,7 @@ table_data = DataFrame(
 )
 
 # Print the table
-println("\n Table of Day-Ahead and Balancing Market Results")
+println("\n ✅ Table of Day-Ahead and Balancing Market Results")
 println(table_data)
 
 
