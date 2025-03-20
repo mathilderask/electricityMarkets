@@ -14,6 +14,7 @@ df_LP = CSV.read("LoadProfile.csv", DataFrame; delim=';', types=Dict(Symbol("Sys
 df_LN = CSV.read("LoadNodes.csv", DataFrame;  delim=';', types=Dict(:Percentage_SystemLoad => Float64))
 df_WP = CSV.read("WindFarmData.csv", DataFrame;  delim=';', types=Dict(:Pi_max => Float64))
 
+
 # Extract data directly as Float64
 Pi_max = df_GUD[!, :"Pi_max"]  # Maximum power output
 Ci = df_GUD[!, :"Ci"]          # Production cost
@@ -55,12 +56,10 @@ Ci_downward = Ci .- 0.15 .* Ci
 # Load curtailment cost
 Ci_curtailment = 500.0
 
+
 # ---------------------------------------------------------------
-# Clear the balancing market for hour 9 and derive the balancing price. 
+# Clear the balancing market for hour 1 and derive the balancing price. 
 # Then, calculate the total profit (in both day-ahead and balancing markets) of all conventional generators and wind farms in the given hour, assuming the imbalance costs are not included in the profits. settlement follows: (1) One-price scheme, (2) Two-price scheme
-
-
-
 #-------------------------------------------------------------
 
 Di_first = Di[1]  # First hour demand
@@ -110,9 +109,6 @@ profits_wind_imb, profits_gen_imb, welfare_imb = run_market_model(
 #----------------------------------------------
 
 
-
-
-
 #---------------------- PLOT 1 ----------------------
 using PyPlot
 
@@ -127,7 +123,7 @@ profits = [total_profits_noimb, total_profits_imb]
 figure(figsize=(6, 5))
 bar(labels, profits, color=["green", "red"])
 ylabel("Total Market Profits (\$)")
-title("Total Profits With and Without Imbalances")
+title("Total Profits With and Without Imbalances at hour 10:00")
 grid(true, axis="y")
 gcf()  # Show figure
 # savefig("profits_comparison.svg")
