@@ -14,6 +14,7 @@ df_LP = CSV.read("LoadProfile.csv", DataFrame; delim=';', types=Dict(Symbol("Sys
 df_LN = CSV.read("LoadNodes.csv", DataFrame;  delim=';', types=Dict(:Percentage_SystemLoad => Float64))
 df_WP = CSV.read("WindFarmData.csv", DataFrame;  delim=';', types=Dict(:Pi_max => Float64))
 
+
 # Extract data directly as Float64
 Pi_max = df_GUD[!, :"Pi_max"]  # Maximum power output
 Ci = df_GUD[!, :"Ci"]          # Production cost
@@ -40,6 +41,29 @@ WF_Prod[4] = WF_Prod[4] * 1.15
 WF_Prod[5] = WF_Prod[5] * 1.15
 WF_Prod[6] = WF_Prod[6] * 1.15
 #-------------------------------------------------------------
+
+#----------------- UPWARD / DOWNWARD REGULATION -----------------
+# Each flexible generator offers upward regulation service at a price equal to the day-ahead price plus 10% of its production cost
+# It also offers downward regulation service at a price equeal to the day-ahead price minus 15% of its production cost
+# Load curtailment cost is 500 USD/MWh
+
+# Upward regulation price
+Ci_upward = Ci .+ 0.1 .* Ci
+
+# Downward regulation price
+Ci_downward = Ci .- 0.15 .* Ci
+
+# Load curtailment cost
+Ci_curtailment = 500.0
+
+
+# ---------------------------------------------------------------
+# Clear the balancing market for hour 1 and derive the balancing price. 
+# Then, calculate the total profit (in both day-ahead and balancing markets) of all conventional generators and wind farms in the given hour, assuming the imbalance costs are not included in the profits. settlement follows: (1) One-price scheme, (2) Two-price scheme
+#-------------------------------------------------------------
+
+Di_first = Di[1]  # First hour demand
+
 function run_market_model(Pi_max, WF_Prod, Ci, Di_first, LN, Dp)
 
     D_FirstHour = [Di_first * LN[i] for i in eachindex(LN)]
@@ -99,7 +123,7 @@ profits = [total_profits_noimb, total_profits_imb]
 figure(figsize=(6, 5))
 bar(labels, profits, color=["green", "red"])
 ylabel("Total Market Profits (\$)")
-title("Total Profits With and Without Imbalances")
+title("Total Profits With and Without Imbalances at hour 10:00")
 grid(true, axis="y")
 gcf()  # Show figure
 # savefig("profits_comparison.svg")
