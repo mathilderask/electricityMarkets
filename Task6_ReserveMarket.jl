@@ -22,8 +22,11 @@ Pi_max = df_GUD[!, :"Pi_max"]  # Maximum power output of conventional generators
 Ci = df_GUD[!, :"Ci"]          # Production cost of conventional generators
 Ri_U = df_GUD[!, :"Ri_U"]  # Ramp up rate
 Ri_D = df_GUD[!, :"Ri_D"]  # Ramp down rate
+Pini = df_GUD[!, :"Pi_ini"]  # Initial power output of conventional generators when t=0
 Ci_U = df_GUD[!, :"Ci_+"]  # Up regulation offer price of conventional generators
 Ci_D = df_GUD[!, :"Ci_-"]  # Down regulation offer price of conventional generators
+Ri_plus = df_GUD[!, :"Ri_+"]  # Maximum up reserve capacity of conventional generators
+Ri_minus = df_GUD[!, :"Ri_-"]  # Maximum down reserve capacity of conventional generators
 Di = df_LP[!, "System_demand_(MW)"]  # Load profile
 LN = df_LN[!, :"Percentage_SystemLoad"]  # Load node percentages
 Dp = df_DB[!, :]  # Demand price bids for each hour
@@ -37,7 +40,7 @@ m_reserve = Model(GLPK.Optimizer)
 
 T = 1:24
 G = 1:length(Pi_max) # Number of conventional generators
-G_reserve = 1:6  # Generators participating in the reserve market
+G_reserve = 1:length(Pi_max) # Generators participating in the reserve market (added as a separate list in case some generators do not participate)
 
 # Define variables
 @variable(m_reserve, r_U[G, T] >= 0)   # Upward reserve
@@ -54,8 +57,8 @@ for t in T
     @constraint(m_reserve, sum(r_D[g, t] for g in G_reserve) == hourly_down_reserve)
 
     for g in G_reserve
-        @constraint(m_reserve, r_U[g, t] <= Ri_U[g])
-        @constraint(m_reserve, r_D[g, t] <= Ri_D[g])
+        @constraint(m_reserve, r_U[g, t] <= Ri_plus[g])
+        @constraint(m_reserve, r_D[g, t] <= Ri_minus[g])
         @constraint(m_reserve, r_U[g, t] + r_D[g, t] <= Pi_max[g])
     end
 end
@@ -120,8 +123,8 @@ for t in T
     # Ramp constraints for conventional generators
     if t == 1
         for i in I
-            @constraint(m, P[i, t] - 0.0 <= Ri_U[i])
-            @constraint(m, P[i, t] - 0.0 >= -Ri_D[i])
+            @constraint(m, P[i, t] - Pini[i] <= Ri_U[i])
+            @constraint(m, P[i, t] - Pini[i] >= -Ri_D[i])
         end
     else
         for i in I

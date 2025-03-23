@@ -1,11 +1,15 @@
 # Task 2 with BESS
+
+#------------------------------------Input Data and File Reading------------------------------------#
+
 using Pkg
 Pkg.add("CSV")
 Pkg.add("DataFrames")
 Pkg.add("JuMP")
 Pkg.add("GLPK")
+Pkg.add("Plots")
 
-using CSV, DataFrames, JuMP, GLPK
+using CSV, DataFrames, JuMP, GLPK, Plots
 
 # Read CSV files and specify column types to ensure Float64 conversion
 df_GUD = CSV.read("GeneratingUnitsData.csv", DataFrame; delim=';', types=Dict(:Pi_max => Float64, :Ci => Float64))
@@ -19,6 +23,7 @@ Pi_max = df_GUD[!, :"Pi_max"]  # Maximum power output of conventional generators
 Ci = df_GUD[!, :"Ci"]          # Production cost of conventional generators
 Ri_U = df_GUD[!, :"Ri_U"]  # Ramp up rate
 Ri_D = df_GUD[!, :"Ri_D"]  # Ramp down rate
+Pini = df_GUD[!, :"Pi_ini"]  # Initial power output of conventional generators when t=0
 Di = df_LP[!, "System_demand_(MW)"]  # Load profile
 LN = df_LN[!, :"Percentage_SystemLoad"]  # Load node percentages
 Dp = df_DB[!, :]  # Demand price bids for each hour
@@ -30,6 +35,9 @@ Max_power = 250.00 # Nominal power of the BESS (MW)
 eta_ch = 0.98 # Charging efficiency of the BESS
 eta_dis = 0.97 # Discharging efficiency of the BESS
 SOC_init = 0.0 # Initial state-of-charge (SOC) of the BESS (MWh)
+
+
+#------------------------------------Day-Ahead Market Clearance (24 hours and with the implementation of a BESS)------------------------------------#
 
 # Initialize the model
 m = Model(GLPK.Optimizer)
@@ -68,8 +76,8 @@ for t in T
     # Ramp constraints for conventional generators
     if t == 1
         for i in I
-            @constraint(m, P[i, t] - 0.0 <= Ri_U[i])
-            @constraint(m, P[i, t] - 0.0 >= -Ri_D[i])
+            @constraint(m, P[i, t] - Pini[i] <= Ri_U[i])
+            @constraint(m, P[i, t] - Pini[i] >= -Ri_D[i])
         end
     else
         for i in I
@@ -123,9 +131,24 @@ if termination_status(m) == MOI.OPTIMAL
     println("SOC over time: ", [round(value(SOC[t]), digits=2) for t in T])
     #println("Hourly BESS Charging Power (MW): ", [round(value(P_ch[t]), digits=2) for t in T])
     #println("Hourly BESS Discharging Power (MW): ", [round(value(P_dis[t]), digits=2) for t in T])
-
     
 else
     println("Optimization failed: ", termination_status(m))
 end
+
+#--------------------------------------------Results plotting--------------------------------------------------------#
+
+
+plot(T, MCPs,
+seriestype = :steppost,
+xlabel = "Time (h)",
+ylabel = "Market Clearing Price (USD/MWh)",
+#label = "MCP",
+#legend = :topright,
+legend = false,
+linewidth = 2,
+marker = :circle,
+color = :blue,
+ylims = (5, 12),
+grid = true)
 

@@ -1,12 +1,15 @@
 #Task 2 wo_BESS
 
+#------------------------------------Input Data and File Reading------------------------------------#
+
 using Pkg
 Pkg.add("CSV")
 Pkg.add("DataFrames")
 Pkg.add("JuMP")
 Pkg.add("GLPK")
+Pkg.add("Plots")
 
-using CSV, DataFrames, JuMP, GLPK
+using CSV, DataFrames, JuMP, GLPK, Plots
 
 # Read CSV files and specify column types to ensure Float64 conversion
 df_GUD = CSV.read("GeneratingUnitsData.csv", DataFrame; delim=';', types=Dict(:Pi_max => Float64, :Ci => Float64))
@@ -20,11 +23,14 @@ Pi_max = df_GUD[!, :"Pi_max"]  # Maximum power output of conventional generators
 Ci = df_GUD[!, :"Ci"]          # Production cost of conventional generators
 Ri_U = df_GUD[!, :"Ri_U"]  # Ramp up rate
 Ri_D = df_GUD[!, :"Ri_D"]  # Ramp down rate
+Pini = df_GUD[!, :"Pi_ini"]  # Initial power output of conventional generators when t=0
 Di = df_LP[!, "System_demand_(MW)"]  # Load profile
 LN = df_LN[!, :"Percentage_SystemLoad"]  # Load node percentages
 Dp = df_DB[!, :]  # Demand price bids for each hour
 WF_Prod = df_WP[!, :] # Wind farm production for each hour
 
+
+#------------------------------------Day-Ahead Market Clearance (24 hours)------------------------------------#
 
 # Initialize the model
 m = Model(GLPK.Optimizer)
@@ -60,8 +66,8 @@ for t in T
     # Ramp constraints for conventional generators
     if t == 1
         for i in I
-            @constraint(m, P[i, t] - 0.0 <= Ri_U[i])
-            @constraint(m, P[i, t] - 0.0 >= -Ri_D[i])
+            @constraint(m, P[i, t] - Pini[i] <= Ri_U[i])
+            @constraint(m, P[i, t] - Pini[i] >= -Ri_D[i])
         end
     else
         for i in I
@@ -99,7 +105,33 @@ if termination_status(m) == MOI.OPTIMAL
     total_power_per_generator = [sum(value(P[i, t]) for t in T) for i in I]
     println("Total power delivered by each conventional generator (MWh): ", [round(p, digits=2) for p in total_power_per_generator])
 
-    
 else
     println("Optimization failed: ", termination_status(m))
 end
+
+
+#--------------------------------------------Results plotting--------------------------------------------------------#
+
+MCPs_with_bess = [6.02, 6.02, 6.02, 6.02, 6.02, 6.02, 6.02, 10.52, 10.52, 10.89, 10.52, 10.52, 10.52, 10.89, 10.52, 10.52, 10.89, 10.89, 10.89, 10.52, 10.52, 10.52, 6.02, 6.02]
+
+plot(T, MCPs,
+    seriestype = :steppost,
+    xlabel = "Time (h)",
+    ylabel = "Market Clearing Price (USD/MWh)",
+    label = "Without BESS",
+    legend = :topright,
+    linewidth = 2,
+    marker = :circle,
+    color = :orange,
+    ylims = (5, 12),
+    grid = true)
+
+
+
+plot!(T, MCPs_with_bess,
+    seriestype = :steppost,
+    linestyle = :dash,
+    label = "With BESS",
+    #linewidth = 2,
+    marker = :circle,
+    color = :blue)
