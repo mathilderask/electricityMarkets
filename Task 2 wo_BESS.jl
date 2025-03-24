@@ -1,4 +1,4 @@
-#Task 2 wo_BESS
+#Task 2: Day-ahead market clearance without a BESS implemented in the system
 
 #------------------------------------Input Data and File Reading------------------------------------#
 
@@ -35,10 +35,10 @@ WF_Prod = df_WP[!, :] # Wind farm production for each hour
 # Initialize the model
 m = Model(GLPK.Optimizer)
 
-T = 1:24
-I = 1:length(Pi_max)
-J = 1:length(LN)
-H = 1:size(WF_Prod, 2)
+T = 1:24  # Set of time periods (hours in the day-ahead market: 1 to 24)
+I = 1:length(Pi_max) # Set of conventional generators (indexed based on the number of generators)
+J = 1:length(LN) # Set of demand nodes (indexed based on the number of load nodes in the system)
+H = 1:size(WF_Prod, 2) # Set of wind farms (indexed based on the number of wind farms in the production data)
 
 # Define variables
 @variable(m, 0 <= P[I, T])
@@ -83,11 +83,13 @@ end
 # Solve the model
 optimize!(m)
 
+#------------------------------------Results and Output------------------------------------#
+
 # Extracting the results
 if termination_status(m) == MOI.OPTIMAL
     # Extract market-clearing prices
     MCPs = [shadow_price(power_balance[t]) for t in T]
-
+    
     # Compute total profits for conventional generators
     gen_profits = [sum((value(P[i, t]) * MCPs[t]) - (value(P[i, t]) * Ci[i]) for t in T) for i in I]
     
@@ -100,38 +102,7 @@ if termination_status(m) == MOI.OPTIMAL
     println("Market Clearing Prices per hour: ", [round(MCPs[t], digits=2) for t in T])
     println("Total Profits per Conventional Generator: ", [round(p, digits=2) for p in gen_profits])
     println("Total Profits per Wind Farm: ", [round(w, digits=2) for w in wind_profits])
-    
-    #Print dispatch of conventional units and BESS
-    total_power_per_generator = [sum(value(P[i, t]) for t in T) for i in I]
-    println("Total power delivered by each conventional generator (MWh): ", [round(p, digits=2) for p in total_power_per_generator])
-
 else
     println("Optimization failed: ", termination_status(m))
 end
 
-
-#--------------------------------------------Results plotting--------------------------------------------------------#
-
-MCPs_with_bess = [6.02, 6.02, 6.02, 6.02, 6.02, 6.02, 6.02, 10.52, 10.52, 10.89, 10.52, 10.52, 10.52, 10.89, 10.52, 10.52, 10.89, 10.89, 10.89, 10.52, 10.52, 10.52, 6.02, 6.02]
-
-plot(T, MCPs,
-    seriestype = :steppost,
-    xlabel = "Time (h)",
-    ylabel = "Market Clearing Price (USD/MWh)",
-    label = "Without BESS",
-    legend = :topright,
-    linewidth = 2,
-    marker = :circle,
-    color = :orange,
-    ylims = (5, 12),
-    grid = true)
-
-
-
-plot!(T, MCPs_with_bess,
-    seriestype = :steppost,
-    linestyle = :dash,
-    label = "With BESS",
-    #linewidth = 2,
-    marker = :circle,
-    color = :blue)

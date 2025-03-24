@@ -1,4 +1,4 @@
-#Task6_ReserveMarket
+#Task6: Reserve Market clearance 
 
 #------------------------------------Input Data and File Reading------------------------------------#
 
@@ -23,8 +23,10 @@ Ci = df_GUD[!, :"Ci"]          # Production cost of conventional generators
 Ri_U = df_GUD[!, :"Ri_U"]  # Ramp up rate
 Ri_D = df_GUD[!, :"Ri_D"]  # Ramp down rate
 Pini = df_GUD[!, :"Pi_ini"]  # Initial power output of conventional generators when t=0
-Ci_U = df_GUD[!, :"Ci_+"]  # Up regulation offer price of conventional generators
-Ci_D = df_GUD[!, :"Ci_-"]  # Down regulation offer price of conventional generators
+Ci_plus = df_GUD[!, :"Ci_+"]  # Up regulation offer price of conventional generators
+Ci_minus = df_GUD[!, :"Ci_-"]  # Down regulation offer price of conventional generators
+Ci_U = df_GUD[!, :"Ci_u"]  # Upward reserve capacity cost of generating unit
+Ci_D = df_GUD[!, :"Ci_d"]  # Downward reserve capacity cost of generating unit
 Ri_plus = df_GUD[!, :"Ri_+"]  # Maximum up reserve capacity of conventional generators
 Ri_minus = df_GUD[!, :"Ri_-"]  # Maximum down reserve capacity of conventional generators
 Di = df_LP[!, "System_demand_(MW)"]  # Load profile
@@ -38,7 +40,7 @@ WF_Prod = df_WP[!, :] # Wind farm production for each hour
 m_reserve = Model(GLPK.Optimizer)
 
 
-T = 1:24
+T = 1:24 # Set of time periods (hours in the day-ahead market: 1 to 24)
 G = 1:length(Pi_max) # Number of conventional generators
 G_reserve = 1:length(Pi_max) # Generators participating in the reserve market (added as a separate list in case some generators do not participate)
 
@@ -47,15 +49,10 @@ G_reserve = 1:length(Pi_max) # Generators participating in the reserve market (a
 @variable(m_reserve, r_D[G, T] >= 0)   # Downward reserve
 
 #Constraints
+@constraint(m_reserve, up_reserve[t in T], sum(r_U[g, t] for g in G_reserve) == Di[t] * 0.15)
+@constraint(m_reserve, down_reserve[t in T], sum(r_D[g, t] for g in G_reserve) == Di[t] * 0.10)
+
 for t in T
-    #Reserve service requirements
-    hourly_up_reserve = Di[t] * 0.15
-    hourly_down_reserve = Di[t] * 0.10
-
-    #Constraints
-    @constraint(m_reserve, sum(r_U[g, t] for g in G_reserve) == hourly_up_reserve)
-    @constraint(m_reserve, sum(r_D[g, t] for g in G_reserve) == hourly_down_reserve)
-
     for g in G_reserve
         @constraint(m_reserve, r_U[g, t] <= Ri_plus[g])
         @constraint(m_reserve, r_D[g, t] <= Ri_minus[g])
@@ -64,18 +61,31 @@ for t in T
 end
 
 #Objective function
-@objective(m_reserve, Min, sum(r_U[g, t] * Ci_U[g] + r_D[g, t] * Ci_D[g] for g in G_reserve, t in T))
+@objective(m_reserve, Min, sum(r_U[g, t] * Ci_plus[g] + r_D[g, t] * Ci_minus[g] for g in G_reserve, t in T))
 
 # Solve the model
-optimize!(m_reserve)
+@time optimize!(m_reserve)
+
+#------------------------------------Results and Output (Reserve Market)--------------------------------#
 
 # Extract results
 if termination_status(m_reserve) == MOI.OPTIMAL
-    println("Total Reserve Cost: ", round(objective_value(m_reserve), digits=2))
-
+    # Total reserve per generator (Upward and Downward)
     total_rU_per_gen = [sum(value(r_U[g, t]) for t in T) for g in G]
     total_rD_per_gen = [sum(value(r_D[g, t]) for t in T) for g in G]
 
+    # Reserve market shadow prices (dual values of reserve constraints)
+    up_reserve_prices = -[shadow_price(up_reserve[t]) for t in T]
+    down_reserve_prices = -[shadow_price(down_reserve[t]) for t in T]
+
+    # Calculate reserve market profit per generator (including Downward and Upward reserve profits)
+    gen_reserve_profits = [sum(value(r_U[g, t]) * (up_reserve_prices[t] - Ci_U[g]) + value(r_D[g, t]) * (down_reserve_prices[t] - Ci_D[g]) for t in T) for g in G]
+
+    # Print results
+    println("Reserve Market Profits per Generator: ", [round(p, digits=2) for p in gen_reserve_profits])
+    println("Upward Reserve Prices per Hour: ", [round(p, digits=2) for p in up_reserve_prices])
+    println("Downward Reserve Prices per Hour: ", [round(p, digits=2) for p in down_reserve_prices])
+    println("Total Reserve Cost: ", round(objective_value(m_reserve), digits=2))
     println("Total Upward Reserve per Generator (MWh): ", [round(x, digits=2) for x in total_rU_per_gen])
     println("Total Downward Reserve per Generator (MWh): ", [round(x, digits=2) for x in total_rD_per_gen])
 else
@@ -93,9 +103,9 @@ r_down = [value(r_D[g, t]) for g in G, t in T] #Saving downward reserve results
 m = Model(GLPK.Optimizer)
 
 
-I = 1:length(Pi_max)
-J = 1:length(LN)
-H = 1:size(WF_Prod, 2)
+I = 1:length(Pi_max) # Set of conventional generators (indexed based on the total number of generators)
+J = 1:length(LN) # Set of demand nodes (indexed based on the number of load nodes in the system)
+H = 1:size(WF_Prod, 2) # Set of wind farms (indexed based on the number of wind farms in the production data)
 
 # Define variables
 @variable(m, 0 <= P[I, T])
@@ -138,31 +148,28 @@ end
 @objective(m, Max, sum(D[j, t] * Dp[t, j] for j in J, t in T) - sum(P[i, t] * Ci[i] for i in I, t in T))
 
 # Solve the model
-optimize!(m)
+@time optimize!(m)
+
+#------------------------------------Results and Output (Day-Ahead Market)--------------------------------#
 
 # Extracting the results
 if termination_status(m) == MOI.OPTIMAL
     # Extract market-clearing prices
     MCPs = [shadow_price(power_balance[t]) for t in T]
 
-    # Compute total profits for conventional generators
-    gen_profits = [sum((value(P[i, t]) * MCPs[t]) - (value(P[i, t]) * Ci[i]) for t in T) for i in I]
+    # Compute day-ahead profits for conventional generators and total profits
+    gen_DA_profits = [sum((value(P[i, t]) * MCPs[t]) - (value(P[i, t]) * Ci[i]) for t in T) for i in I]
+    gen_total_profits = [gen_DA_profits[g] + gen_reserve_profits[g] for g in G]
     
     # Compute Total Profits per Wind Farm (assuming zero marginal cost)
     wind_profits = [sum(value(W[h, t]) * MCPs[t] for t in T) for h in H]
 
     #Print results
-
     println("Total social welfare: ", round(objective_value(m), digits=2))
     println("Market Clearing Prices per hour: ", [round(MCPs[t], digits=2) for t in T])
-    println("Total Profits per Conventional Generator: ", [round(p, digits=2) for p in gen_profits])
+    println("Day-Ahead profits per Conventional Generator: ", [round(p, digits=2) for p in gen_DA_profits])
+    println("Overall profits per Conventional Generator: ", [round(p, digits=2) for p in gen_total_profits])
     println("Total Profits per Wind Farm: ", [round(w, digits=2) for w in wind_profits])
-    
-    #Print dispatch of conventional units and BESS
-    total_power_per_generator = [sum(value(P[i, t]) for t in T) for i in I]
-    println("Total power delivered by each conventional generator (MWh): ", [round(p, digits=2) for p in total_power_per_generator])
-
-    
 else
     println("Optimization failed: ", termination_status(m))
 end
