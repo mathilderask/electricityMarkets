@@ -38,12 +38,12 @@ function MCP_calculate(constrained_node, constraint)
     j=1:length(D_FirstHour)
     n=1:length(From_node)
 
+    # create decision variables for wind prod, generation and demand
     JuMP.@variable(m, W[h])
     JuMP.@variable(m, P[i])
     JuMP.@variable(m, D[j])
-    JuMP.@variable(m, B[n])
 
-    # Constraints
+    # Limit Constraints
     JuMP.@constraint(m, [k in h], 0 <= W[k] <= WF_Prod[k])
     JuMP.@constraint(m, [k in i], 0 <= P[k] <= Pi_max[k])
     JuMP.@constraint(m, [k in j], 0 <= D[k] <= D_FirstHour[k])
@@ -61,14 +61,10 @@ function MCP_calculate(constrained_node, constraint)
     # Reference bus constraint (set phase angle to zero at a reference node)
     ref_node = 13 # given in data set
     JuMP.@constraint(m, theta[ref_node] == 0)
-    # Transmission constraints for power flow limits
-    #@constraint(m, [(n, m) in keys(susceptance)],
-    #    -capacity[(n, m)] <= susceptance[(n, m)] * (theta[n] - theta[m]) <= capacity[(n, m)]
-    #)
+    # Add max and min transmission capacities for lines
     JuMP.@constraint(m, [(n, l) in keys(susceptance)],
         JuMP.@expression(m, susceptance[(n, l)] * (theta[n] - theta[l])) <= capacity[(n, l)]
     )
-
     JuMP.@constraint(m, [(n, l) in keys(susceptance)], 
         JuMP.@expression(m, susceptance[(n, l)] * (theta[n] - theta[l])) >= -capacity[(n, l)]
     )
@@ -90,11 +86,31 @@ function MCP_calculate(constrained_node, constraint)
     optimize!(m)
 
     if termination_status(m) == MOI.OPTIMAL
-        println("Objective value: ", JuMP.objective_value(m))
         MCP_list = [round(JuMP.dual(power_balance[n]), digits=2) for n in nodes]
         sorted_indices = sortperm(nodes)  # Get sorted indices
         sorted_nodes = nodes[sorted_indices]  # Sort nodes
         sorted_MCP_list = MCP_list[sorted_indices]
+        println("Optimised social welfare: ", JuMP.objective_value(m))
+        for n in nodes
+            production = sum(value(P[k]) for k in i if df_GUD[!, :"Node"][k] == n; init=0)  # Generation at node n
+            wind = sum(value(W[k]) for k in h if df_WP[!, :"Node"][k] == n; init=0)  # Wind generation at node n
+            consumption = sum(value(D[k]) for k in j if df_LN[!, :"Node"][k] == n; init=0)  # Demand at node n
+            imports = sum(value(susceptance[(m, n)] * (value(theta[m]) - value(theta[n]))) for m in nodes if (m, n) in keys(susceptance); init=0)  # Imports
+            exports = sum(value(susceptance[(n, m)] * (value(theta[n]) - value(theta[m]))) for m in nodes if (n, m) in keys(susceptance); init=0)  # Exports
+            net_balance = production + wind - consumption + imports - exports  # Net power balance
+            println("Node $n: Production = $production, Wind = $wind, Consumption = $consumption, Imports = $imports, Exports = $exports, Net Balance = $net_balance")
+        end
+        total_wf_profit = 0
+        total_gen_profit = 0
+        for n in nodes
+            MCP = round(JuMP.dual(power_balance[n]), digits=2)
+            wf_profits = sum(value((MCP) * JuMP.value(W[k])) for k in h if df_WP[!, :"Node"][k] == n; init=0) # What is the cost of wind energy?
+            gen_profits = sum(value((MCP - Ci[k]) * JuMP.value(P[k])) for k in i if df_GUD[!, :"Node"][k] == n; init=0)
+            total_wf_profit += wf_profits  # Accumulate into total wind farm profit
+            total_gen_profit += gen_profits  # Accumulate into total generator profit
+        end
+        println("\nTotal wind farm profit = ", total_wf_profit)
+        println("Total generator profit = ", total_gen_profit)
     else
         println("Optimize was not successful. Return code: ", termination_status(m))
         MCP_list = "Optimize was not successful."
@@ -108,12 +124,9 @@ end
 using PyPlot
 # no constraint
 nodes_1, MCP_list_1 = MCP_calculate((1, 2), 175) # no constraint added, data is unconstrained
-nodes_2, MCP_list_2 = MCP_calculate((10, 11), 80) # constraint added to node 10
-nodes_3, MCP_list_3 = MCP_calculate((15, 21), 450) # constraint added to node 15
-
+nodes_3, MCP_list_3 = MCP_calculate((15, 21), 400) # constraint added, line between nodes 15-21 is constrained
 figure(figsize=(10,5))
 plot(nodes_1, MCP_list_1, marker="o", linestyle="-", color="b", label="Unconstrained")
-plot(nodes_2, MCP_list_2, marker="o", linestyle="-", color="r", label="Constrain line between nodes 10-11")
 plot(nodes_3, MCP_list_3, marker="o", linestyle="-", color="g", label="Constrain line between nodes 15-21")
 xlabel("Nodes")
 ylabel("Market Clearing Price (\$/MWh)")
