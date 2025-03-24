@@ -85,30 +85,24 @@ function DA_model(gen_cap::Dict, wind_cap::Dict, gen_cost::Dict, P_D::Dict, dema
         for w in wind_farms
             println("$w: ", value(W[w]))
         end
-
-        println("\n🔸 Demand Served:")
-        for d in demands
-            println("$d: ", value(D[d]))
-        end
-
+        
+        profit_gen_DA = Dict(g => (MCP - gen_cost[g]) * value(P[g]) for g in generators)
         println("\n🔸 Generator Profits:")
         for g in generators
-            profit = (MCP - gen_cost[g]) * value(P[g])
-            println("$g: ", round(profit, digits=2))
+            println("$g: ", round(profit_gen_DA[g], digits=2))
         end
 
+
+        profit_wind_DA = Dict(w => MCP * value(W[w]) for w in wind_farms)
         println("\n🔸 Wind Farm Profits:")
         for w in wind_farms
-            profit = MCP * value(W[w])
-            println("$w: ", round(profit, digits=2))
+            println("$w: ", round(profit_wind_DA[w], digits=2))
         end
 
-        println("\n🔸 Demand Utilities:")
-        for d in demands
-            utility = value(D[d]) * (demand_bid[d] - MCP)
-            println("$d: ", round(utility, digits=2))
-        end
-        return MCP, P_DA
+
+        W_DA = Dict(w => value(W[w]) for w in wind_farms)
+
+        return MCP, P_DA, W_DA, profit_gen_DA, profit_wind_DA
     else
         error("❌ Optimization failed!")
     end
@@ -119,7 +113,7 @@ end
 # Balancing Market Model
 # -----------------------------
 
-function BM_model(gen_cap::Dict, wind_cap::Dict, gen_cost::Dict, P_D::Dict, demand_bid::Dict, Ci_up::Dict, Ci_down::Dict, curtail_cost::Float64, P_DA::Dict, scheme::String, MCP::Float64)
+function BM_model(gen_cap::Dict, wind_cap::Dict, gen_cost::Dict, P_D::Dict, demand_bid::Dict, Ci_up::Dict, Ci_down::Dict, curtail_cost::Float64, P_DA::Dict, W_DA::Dict, scheme::String, MCP::Float64, profit_gen_DA::Dict, profit_wind_DA::Dict)
     model_BM = Model(GLPK.Optimizer)
         
     # Define sets
@@ -127,139 +121,124 @@ function BM_model(gen_cap::Dict, wind_cap::Dict, gen_cost::Dict, P_D::Dict, dema
     wind_farms = collect(keys(wind_cap))
     demands = collect(keys(P_D))
 
-    # Store original values
-    gen_actual = copy(gen_cap)
-    wind_actual = copy(wind_cap)
+    # Balancing Market Generators (Subset of all generators)
+    balancing_generators = ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G9", "G10", "G11", "G12"]
+
+    # Now define Ci_up and Ci_down for all balancing generators
+    Ci_up = Dict(g => MCP + gen_cost[g] * 0.1 for g in balancing_generators)
+    Ci_down = Dict(g => MCP - gen_cost[g] * 0.15 for g in balancing_generators)
+    curtail_cost = 500.0
+
+    # DA Results
+    gen_DA = copy(P_DA)
+    wind_DA = copy(W_DA)
 
     # Apply Imbalances
-    gen_cap = Dict(g => (g == "G8" ? 0.0 : gen_cap[g]) for g in generators)
-    wind_cap = Dict(w => wind_cap[w] * (w in ["W1", "W2", "W3"] ? 0.9 : 1.15) for w in wind_farms)
-    
-    # Balancing Market Generators (Subset of all generators)
-    balancing_generators = ["G1", "G2", "G3", "G4", "G5", "G6"]
-    Ci_up = Dict(g => gen_cost[g] * 1.1 for g in balancing_generators)
-    Ci_down = Dict(g => gen_cost[g] * 0.85 for g in balancing_generators)
+    wind_BM = Dict(w => W_DA[w] * (w in ["W1", "W2", "W3"] ? 0.90 : 1.15) for w in wind_farms)
+    gen_BM = Dict(g => (g == "G8" ? 0.0 : gen_DA[g]) for g in generators)    
+
+    diff_wind = sum(wind_DA[w] for w in wind_farms) - sum(wind_BM[w] for w in wind_farms)
+    diff_G8 = gen_DA["G8"]
+    imbalance_overall = diff_wind + diff_G8
+
+    total_wind = sum(wind_BM[w] for w in wind_farms)
+    total_gen_DA = sum(gen_DA[g] for g in generators)
 
     # Variables
-    @variable(model_BM, W[w in wind_farms] >= 0)
-    @variable(model_BM, P[g in generators] >= 0)  # All generators
-    @variable(model_BM, D[d in demands] >= 0)
-    @variable(model_BM, P_up[g in balancing_generators] >= 0)  # Only balancing generators
+    @variable(model_BM, P_up[g in balancing_generators] >= 0) 
     @variable(model_BM, P_down[g in balancing_generators] >= 0) 
     @variable(model_BM, C_curtail >= 0)
 
-    # Debugging Information (Check Correct Keys)
-    #println("✅ Generators: ", generators)
-    #println("✅ Balancing Generators: ", balancing_generators)
-    #println("✅ P Keys: ", keys(P))
-    #println("✅ P_up Keys: ", keys(P_up))
-    #println("✅ P_down Keys: ", keys(P_down))
-
-    # Constraints
-    @constraint(model_BM, [w in wind_farms], W[w] <= wind_cap[w])
-    @constraint(model_BM, [d in demands], D[d] <= P_D[d])
-    
-    # Only enforce generation limits for generators **in the model**
-    @constraint(model_BM, [g in generators], P[g] <= gen_cap[g]) 
-
-    # **Only balancing generators can adjust** (Prevent indexing errors)
-    for g in balancing_generators
-        @constraint(model_BM, P[g] + P_up[g] - P_down[g] <= gen_cap[g])  # Ensuring feasible limits
+    # Constraints    
+    for g in balancing_generators                          
+        @constraint(model_BM, P_up[g] <= gen_cap[g] - gen_DA[g])
+        @constraint(model_BM, P_down[g] <= gen_DA[g])
     end
 
-    # Power Balance
-    power_balance = @constraint(model_BM,
-        sum(D[d] for d in demands) ==
-        sum(P[g] for g in generators) +   
-        sum(P_up[g] - P_down[g] for g in balancing_generators) +  
-        sum(W[w] for w in wind_farms) + C_curtail
+    balancing_system = @constraint(model_BM,
+        sum(P_up[g] - P_down[g] for g in balancing_generators) + C_curtail == imbalance_overall
     )
 
     # Objective: Minimize total cost
     @objective(model_BM, Min,
-        sum(gen_cost[g] * P[g] for g in generators) +
         sum(Ci_up[g] * P_up[g] for g in balancing_generators) -
         sum(Ci_down[g] * P_down[g] for g in balancing_generators) +
         C_curtail * curtail_cost
     )
-
+    
     optimize!(model_BM)
 
     if termination_status(model_BM) == MOI.OPTIMAL
         println("✅ Balancing Market Solved")
         println("🔹 Objective Value: ", objective_value(model_BM))
+    
+        println("\n🔸 Upward (Generators):")
+        for g in balancing_generators
+            println("$g: ", value(P_up[g]))
+        end
+
+        println("\n🔸 Downward (Generators):")
+        for g in balancing_generators
+            println("$g: ", value(P_down[g]))
+        end
+
+        # Extract balancing price BA_MCP
+        BA_MCP = round(JuMP.dual(balancing_system), digits=2)
+        println("🔹 Balancing Market Clearing Price (BA_MCP): ", BA_MCP)
+
+        # For the balancing generators
+           # Profit = (BA_MCP*P_up) - (gen_cost*P_up) + DA_profit
         
-        println("\n🔸 Dispatch (Generators):")
-        for g in generators
-            println("$g: ", value(P[g]))
+        total_profit_bg = 0.0
+        total_revenue_bg = 0.0
+
+        for g in balancing_generators
+            profit_bg = (BA_MCP * value(P_up[g])) - (gen_cost[g] * value(P_up[g]))
+            revenue_bg = MCP * gen_DA[g] + profit_bg
+
+            total_profit_bg += profit_bg
+            total_revenue_bg += revenue_bg
+
+            println("$g Profit: ", round(profit_bg, digits=2), ", $g Revenue: ", round(revenue_bg, digits=2))
         end
 
-        println("\n🔸 Dispatch (Wind Farms):")
+        # Wind Farms - shceme pricing
+        total_profit_one_price = 0.0
+        total_profit_two_price = 0.0
+        total_revenue_one_price = 0.0
+        total_revenue_two_price = 0.0
+
         for w in wind_farms
-            println("$w: ", value(W[w]))
+            imbalance_wind = value(wind_BM[w]) - value(W_DA[w])
+
+            println("\n 💨 $w imbalance: ", round(value(imbalance_wind), digits=2))
+            
+            # Producing more than expected
+            if imbalance_wind > 0
+                profit_one_price = BA_MCP * imbalance_wind
+                profit_two_price = MCP * imbalance_wind
+            else
+                profit_one_price = BA_MCP * imbalance_wind
+                profit_two_price = BA_MCP * imbalance_wind
+            end
+                revenues_one_price = MCP * W_DA[w] + profit_one_price
+                revenues_two_price = MCP * W_DA[w] + profit_two_price
+
+                total_profit_one_price += profit_one_price
+                total_profit_two_price += profit_two_price
+                total_revenue_one_price += revenues_one_price
+                total_revenue_two_price += revenues_two_price
+
+                println("$w: One-price Profit = $(round(profit_one_price, digits=2)), Two-price Profit = $(round(profit_two_price, digits=2))")
+                println("$w: One-price Revenue = $(round(revenues_one_price, digits=2)), Two-price Revenue = $(round(revenues_two_price, digits=2))")
         end
-        println("\n🔸 Imbalance Settlements ($scheme scheme):")
-        for g in generators
-            DA = P_DA[g]       # Day-ahead dispatch
-            BM = value(P[g])   # Real-time dispatch
-            imbalance = BM - DA
 
-            UP = value(P_up[g])
-            DOWN = value(P_down[g])
-            net_dispatch = BM + UP - DOWN
+        # G8 - regulation pricing
+            # Charged = BA_MCP * Imbalance(<0)
+        g8_profit = BA_MCP * (-diff_G8)
+        g8_revenue = MCP * gen_DA["G8"] + g8_profit
 
-            if isapprox(imbalance, 0.0; atol=1e-3)
-                println("$g: No imbalance")
-                continue
-            end
-
-            settlement = 0.0
-            cost = gen_cost[g]
-
-            if scheme == "one-price"
-                if imbalance > 0  # Excess: Supplied more than committed
-                    price = MCP - 0.15 * cost
-                else  # Deficit: Supplied less than committed
-                    price = MCP + 0.10 * cost
-                end
-                settlement = imbalance * price
-
-            elseif scheme == "two-price"
-                # Day-ahead scheduled quantity: DA
-                # Real-time dispatch: BM
-
-                DA_price = MCP
-                BM_price = round(JuMP.dual(power_balance), digits=2)
-
-                # Compute up/down regulation
-                scheduled = DA
-                dispatched = BM + (g in balancing_generators ? value(P_up[g]) - value(P_down[g]) : 0.0)
-                imbalance = dispatched - scheduled
-
-                # Total revenue: scheduled at DA price, deviation at balancing price
-                revenue = scheduled * DA_price + imbalance * BM_price
-                profit = revenue - cost * dispatched # Profit = Revenue - Cost
-
-                if imbalance < 0  # Generator underproduced (deficit)
-                    if system_imbalance < 0  # System short → worsening
-                        price = MCP
-                    else  # System has excess → helping
-                        price = MCP + 0.10 * cost
-                    end
-                else  # Generator overproduced (excess)
-                    if system_imbalance > 0  # System long → worsening
-                        price = MCP
-                    else  # System is short → helping
-                        price = MCP - 0.15 * cost
-                    end
-                end
-                settlement = imbalance * price
-                println("System imbalance (net MW): ", round(system_imbalance, digits=2), ", Profit: ", round(profit, digits=2))
-            end
-
-        println("$g: Imbalance = $(round(imbalance, digits=2)), Settlement = $(round(settlement, digits=2)), Revenue: $(round(settlement + cost * DA, digits=2))")
-
-    end
+        println("\n🔸 G8 Profit: $(round(g8_profit, digits=2)), Revenue: $(round(g8_revenue, digits=2))")
 
     else
         error("❌ Balancing Market Optimization Failed!")
@@ -274,8 +253,12 @@ end
 
 # Run Day-Ahead Market
 println("\n🔍 Day-Ahead Market:")
-#P_DA, MCP = DA_model(gen_cap, wind_cap, gen_cost, P_D, demand_bid)
+MCP, P_DA, W_DA, profit_gen_DA, profit_wind_DA = DA_model(gen_cap, wind_cap, gen_cost, P_D, demand_bid)
 
 # Run Balancing Market
 println("\n🔍 Balancing Market:")
-BM_model(gen_cap, wind_cap, gen_cost, P_D, demand_bid, Ci_up, Ci_down, curtail_cost, MCP, "one-price", P_DA)
+BM_model(
+    gen_cap, wind_cap, gen_cost, P_D, demand_bid,
+    Ci_up, Ci_down, curtail_cost,
+    P_DA, W_DA, "two-price", MCP, profit_gen_DA, profit_wind_DA
+)
