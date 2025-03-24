@@ -1,0 +1,4 @@
+From_zone,To_zone,Capacity_MVA
+1,2,575
+1,3,1100
+2,3,2400
