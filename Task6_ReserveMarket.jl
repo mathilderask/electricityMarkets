@@ -1,4 +1,4 @@
-#Task 2 wo_BESS
+#Task6_ReserveMarket
 
 #------------------------------------Input Data and File Reading------------------------------------#
 
@@ -7,9 +7,8 @@ Pkg.add("CSV")
 Pkg.add("DataFrames")
 Pkg.add("JuMP")
 Pkg.add("GLPK")
-Pkg.add("Plots")
 
-using CSV, DataFrames, JuMP, GLPK, Plots
+using CSV, DataFrames, JuMP, GLPK
 
 # Read CSV files and specify column types to ensure Float64 conversion
 df_GUD = CSV.read("GeneratingUnitsData.csv", DataFrame; delim=';', types=Dict(:Pi_max => Float64, :Ci => Float64))
@@ -24,18 +23,76 @@ Ci = df_GUD[!, :"Ci"]          # Production cost of conventional generators
 Ri_U = df_GUD[!, :"Ri_U"]  # Ramp up rate
 Ri_D = df_GUD[!, :"Ri_D"]  # Ramp down rate
 Pini = df_GUD[!, :"Pi_ini"]  # Initial power output of conventional generators when t=0
+Ci_U = df_GUD[!, :"Ci_+"]  # Up regulation offer price of conventional generators
+Ci_D = df_GUD[!, :"Ci_-"]  # Down regulation offer price of conventional generators
+Ri_plus = df_GUD[!, :"Ri_+"]  # Maximum up reserve capacity of conventional generators
+Ri_minus = df_GUD[!, :"Ri_-"]  # Maximum down reserve capacity of conventional generators
 Di = df_LP[!, "System_demand_(MW)"]  # Load profile
 LN = df_LN[!, :"Percentage_SystemLoad"]  # Load node percentages
 Dp = df_DB[!, :]  # Demand price bids for each hour
 WF_Prod = df_WP[!, :] # Wind farm production for each hour
 
+#------------------------------------Reserve Market Clearance------------------------------------#
 
-#------------------------------------Day-Ahead Market Clearance (24 hours)------------------------------------#
+# Initialize the model
+m_reserve = Model(GLPK.Optimizer)
+
+
+T = 1:24
+G = 1:length(Pi_max) # Number of conventional generators
+G_reserve = 1:length(Pi_max) # Generators participating in the reserve market (added as a separate list in case some generators do not participate)
+
+# Define variables
+@variable(m_reserve, r_U[G, T] >= 0)   # Upward reserve
+@variable(m_reserve, r_D[G, T] >= 0)   # Downward reserve
+
+#Constraints
+for t in T
+    #Reserve service requirements
+    hourly_up_reserve = Di[t] * 0.15
+    hourly_down_reserve = Di[t] * 0.10
+
+    #Constraints
+    @constraint(m_reserve, sum(r_U[g, t] for g in G_reserve) == hourly_up_reserve)
+    @constraint(m_reserve, sum(r_D[g, t] for g in G_reserve) == hourly_down_reserve)
+
+    for g in G_reserve
+        @constraint(m_reserve, r_U[g, t] <= Ri_plus[g])
+        @constraint(m_reserve, r_D[g, t] <= Ri_minus[g])
+        @constraint(m_reserve, r_U[g, t] + r_D[g, t] <= Pi_max[g])
+    end
+end
+
+#Objective function
+@objective(m_reserve, Min, sum(r_U[g, t] * Ci_U[g] + r_D[g, t] * Ci_D[g] for g in G_reserve, t in T))
+
+# Solve the model
+optimize!(m_reserve)
+
+# Extract results
+if termination_status(m_reserve) == MOI.OPTIMAL
+    println("Total Reserve Cost: ", round(objective_value(m_reserve), digits=2))
+
+    total_rU_per_gen = [sum(value(r_U[g, t]) for t in T) for g in G]
+    total_rD_per_gen = [sum(value(r_D[g, t]) for t in T) for g in G]
+
+    println("Total Upward Reserve per Generator (MWh): ", [round(x, digits=2) for x in total_rU_per_gen])
+    println("Total Downward Reserve per Generator (MWh): ", [round(x, digits=2) for x in total_rD_per_gen])
+else
+    println("Reserve Market optimization failed: ", termination_status(m_reserve))
+end
+
+# Store the reserve results for Day-Ahead Market Clearance
+r_up = [value(r_U[g, t]) for g in G, t in T] #Saving upward reserve results 
+r_down = [value(r_D[g, t]) for g in G, t in T] #Saving downward reserve results 
+
+
+#------------------------------------Day-Ahead Market Clearance------------------------------------#
 
 # Initialize the model
 m = Model(GLPK.Optimizer)
 
-T = 1:24
+
 I = 1:length(Pi_max)
 J = 1:length(LN)
 H = 1:size(WF_Prod, 2)
@@ -52,9 +109,9 @@ H = 1:size(WF_Prod, 2)
 for t in T
     D_CurrentHour = [Di[t] * LN[j] for j in J]
 
-    # Generation and wind constraints
+    # Conventional generators and wind power constraints
     for i in I
-        @constraint(m, P[i, t] <= Pi_max[i])
+        @constraint(m, r_down[i, t] <= P[i, t] <= Pi_max[i] - r_up[i, t])
     end
     for h in H
         @constraint(m, W[h, t] <= WF_Prod[t, h])
@@ -105,33 +162,8 @@ if termination_status(m) == MOI.OPTIMAL
     total_power_per_generator = [sum(value(P[i, t]) for t in T) for i in I]
     println("Total power delivered by each conventional generator (MWh): ", [round(p, digits=2) for p in total_power_per_generator])
 
+    
 else
     println("Optimization failed: ", termination_status(m))
 end
 
-
-#--------------------------------------------Results plotting--------------------------------------------------------#
-
-MCPs_with_bess = [6.02, 6.02, 6.02, 6.02, 6.02, 6.02, 6.02, 10.52, 10.52, 10.89, 10.52, 10.52, 10.52, 10.89, 10.52, 10.52, 10.89, 10.89, 10.89, 10.52, 10.52, 10.52, 6.02, 6.02]
-
-plot(T, MCPs,
-    seriestype = :steppost,
-    xlabel = "Time (h)",
-    ylabel = "Market Clearing Price (USD/MWh)",
-    label = "Without BESS",
-    legend = :topright,
-    linewidth = 2,
-    marker = :circle,
-    color = :orange,
-    ylims = (5, 12),
-    grid = true)
-
-
-
-plot!(T, MCPs_with_bess,
-    seriestype = :steppost,
-    linestyle = :dash,
-    label = "With BESS",
-    #linewidth = 2,
-    marker = :circle,
-    color = :blue)
