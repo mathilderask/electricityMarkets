@@ -38,11 +38,12 @@ function MCP_calculate(constrained_node, constraint)
     j=1:length(D_FirstHour)
     n=1:length(From_node)
 
+    # create decision variables for wind prod, generation and demand
     JuMP.@variable(m, W[h])
     JuMP.@variable(m, P[i])
     JuMP.@variable(m, D[j])
 
-    # Constraints
+    # Limit Constraints
     JuMP.@constraint(m, [k in h], 0 <= W[k] <= WF_Prod[k])
     JuMP.@constraint(m, [k in i], 0 <= P[k] <= Pi_max[k])
     JuMP.@constraint(m, [k in j], 0 <= D[k] <= D_FirstHour[k])
@@ -60,11 +61,10 @@ function MCP_calculate(constrained_node, constraint)
     # Reference bus constraint (set phase angle to zero at a reference node)
     ref_node = 13 # given in data set
     JuMP.@constraint(m, theta[ref_node] == 0)
-
+    # Add max and min transmission capacities for lines
     JuMP.@constraint(m, [(n, l) in keys(susceptance)],
         JuMP.@expression(m, susceptance[(n, l)] * (theta[n] - theta[l])) <= capacity[(n, l)]
     )
-
     JuMP.@constraint(m, [(n, l) in keys(susceptance)], 
         JuMP.@expression(m, susceptance[(n, l)] * (theta[n] - theta[l])) >= -capacity[(n, l)]
     )
@@ -104,7 +104,6 @@ function MCP_calculate(constrained_node, constraint)
         total_gen_profit = 0
         for n in nodes
             MCP = round(JuMP.dual(power_balance[n]), digits=2)
-            println("\nProfits per wind farm: ")
             wf_profits = sum(value((MCP) * JuMP.value(W[k])) for k in h if df_WP[!, :"Node"][k] == n; init=0) # What is the cost of wind energy?
             gen_profits = sum(value((MCP - Ci[k]) * JuMP.value(P[k])) for k in i if df_GUD[!, :"Node"][k] == n; init=0)
             total_wf_profit += wf_profits  # Accumulate into total wind farm profit

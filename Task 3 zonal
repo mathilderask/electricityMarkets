@@ -49,6 +49,7 @@ total_zones = length(unique_zones)
 D_FirstHour = [Di[1] * LN[i] for i in 1:length(LN)]
 
 function MCP_calculate(cap_1, cap_2, cap_3)   
+    # create dictionary for ATCs between zones
     trans_cap = Dict(
     (1, 2) => cap_1,
     (1, 3) => cap_2,
@@ -59,7 +60,7 @@ function MCP_calculate(cap_1, cap_2, cap_3)
     h=1:length(WF_Prod)
     i=1:length(Pi_max)
     j=1:length(D_FirstHour)
-
+    # create decision variables for wind prod, generation and demand
     JuMP.@variable(m, W[h])
     JuMP.@variable(m, P[i])
     JuMP.@variable(m, D[j])
@@ -69,7 +70,9 @@ function MCP_calculate(cap_1, cap_2, cap_3)
     JuMP.@constraint(m, [k in i], 0 <= P[k] <= Pi_max[k])
     JuMP.@constraint(m, [k in j], 0 <= D[k] <= D_FirstHour[k])
     
+    # creat decision variable for flow, indexed by from and to zone
     JuMP.@variable(m, f[1:total_zones, 1:total_zones])
+    # Add ATC constraints for max and min flow
     JuMP.@constraint(m, [i in 1:total_zones, k in 1:total_zones],  f[i,k] <= get(trans_cap, (i, k), 0))
     JuMP.@constraint(m, [i in 1:total_zones, k in 1:total_zones],  f[i,k] >= -get(trans_cap, (i, k), 0))
     
@@ -123,18 +126,17 @@ function MCP_calculate(cap_1, cap_2, cap_3)
     return sorted_zones, sorted_MCP_list
 end
 
-#nodes_1, MCP_list_1 = MCP_calculate()
+###### Generate zonal prices for different ATCs ###########
 capacities_1 = [575, 1100, 2400]
 capacities_2 = capacities_1 * 0.1
 capacities_3 = capacities_1 * 0.01
 capacities_4 = capacities_1 * 0.5
-
 zones_1, MCP_list_1 = MCP_calculate(capacities_1...)
 zones_4, MCP_list_4 = MCP_calculate(capacities_4...)
 zones_2, MCP_list_2 = MCP_calculate(capacities_2...)
 zones_3, MCP_list_3 = MCP_calculate(capacities_3...)
 
-
+######### Make Bar graph comparing zonal prices for differnet ATCs ############
 using PyPlot
 # Bar width and offsets
 bar_width = 0.07
