@@ -19,4 +19,4 @@
 - [Task 5]
 - [Task 6]
 
-git clone https://github.com/yourusername/your-repo-name.git
+git clone https://github.com/mathilderask/electricityMarkets.git
