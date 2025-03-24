@@ -252,17 +252,23 @@ end
 
 
 # -----------------------------
-# Run Models
+# Run Models with Time Measurement
 # -----------------------------
 
-# Run Day-Ahead Market
-println("\n🔍 Day-Ahead Market:")
-MCP, P_DA, W_DA, profit_gen_DA, profit_wind_DA = DA_model(gen_cap, wind_cap, gen_cost, P_D, demand_bid)
+using Dates  # Just in case you want more detailed timestamping later
 
-# Run Balancing Market
+# Run Day-Ahead Market with timing
+println("\n🔍 Day-Ahead Market:")
+time_DA = @elapsed MCP, P_DA, W_DA, profit_gen_DA, profit_wind_DA = DA_model(
+    gen_cap, wind_cap, gen_cost, P_D, demand_bid
+)
+println("⏱️ Day-Ahead Market solved in $(round(time_DA, digits=4)) seconds")
+
+# Run Balancing Market with timing
 println("\n🔍 Balancing Market:")
-BM_model(
+time_BM = @elapsed BM_model(
     gen_cap, wind_cap, gen_cost, P_D, demand_bid,
     Ci_up, Ci_down, curtail_cost,
     P_DA, W_DA, "two-price", MCP, profit_gen_DA, profit_wind_DA
 )
+println("⏱️ Balancing Market solved in $(round(time_BM, digits=4)) seconds")
