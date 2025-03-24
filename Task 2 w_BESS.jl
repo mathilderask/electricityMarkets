@@ -1,4 +1,4 @@
-# Task 2 with BESS
+# Task 2: Day-ahead market clearance with a BESS implemented in the system
 
 #------------------------------------Input Data and File Reading------------------------------------#
 
@@ -42,10 +42,10 @@ SOC_init = 0.0 # Initial state-of-charge (SOC) of the BESS (MWh)
 # Initialize the model
 m = Model(GLPK.Optimizer)
 
-T = 1:24
-I = 1:length(Pi_max)
-J = 1:length(LN)
-H = 1:size(WF_Prod, 2)
+T = 1:24  # Set of time periods (hours in the day-ahead market: 1 to 24)
+I = 1:length(Pi_max) # Set of conventional generators (indexed based on the number of generators)
+J = 1:length(LN) # Set of demand nodes (indexed based on the number of load nodes in the system)
+H = 1:size(WF_Prod, 2) # Set of wind farms (indexed based on the number of wind farms in the production data)
 
 # Define variables
 @variable(m, 0 <= P[I, T])
@@ -53,7 +53,7 @@ H = 1:size(WF_Prod, 2)
 @variable(m, 0 <= D[J, T])
 @variable(m, 0 <= P_ch[T] <= Max_power / eta_ch)
 @variable(m, 0 <= P_dis[T] <= Max_power * eta_dis)
-@variable(m, 0 <= SOC[T] <= Max_energy)
+@variable(m, 0 <= SOC[T] <= Max_energy) #The SOC corresponds to the energy stored in the BESS
 
 # Power balance constraint
 @constraint(m, power_balance[t in T], sum(D[j, t] for j in J) - sum(P[i, t] for i in I) - sum(W[h, t] for h in H) - P_dis[t] + P_ch[t] == 0)
@@ -62,7 +62,7 @@ H = 1:size(WF_Prod, 2)
 for t in T
     D_CurrentHour = [Di[t] * LN[j] for j in J]
 
-    # Generation and wind constraints
+    # Conventional generators and wind farms constraints
     for i in I
         @constraint(m, P[i, t] <= Pi_max[i])
     end
@@ -98,7 +98,9 @@ end
 @objective(m, Max, sum(D[j, t] * Dp[t, j] for j in J, t in T) - sum(P[i, t] * Ci[i] for i in I, t in T))
 
 # Solve the model
-optimize!(m)
+@time optimize!(m)
+
+#------------------------------------Results and Output------------------------------------#
 
 # Extracting the results
 if termination_status(m) == MOI.OPTIMAL
@@ -118,37 +120,12 @@ if termination_status(m) == MOI.OPTIMAL
     BESS_profit = BESS_revenue - BESS_cost
 
     #Print results
-
     println("Total social welfare: ", round(objective_value(m), digits=2))
     println("Market Clearing Prices per hour: ", [round(MCPs[t], digits=2) for t in T])
     println("Total Profits per Conventional Generator: ", [round(p, digits=2) for p in gen_profits])
     println("Total Profits per Wind Farm: ", [round(w, digits=2) for w in wind_profits])
     println("Total Profit for BESS: ", round(BESS_profit, digits=2))
-
-    #Print dispatch of conventional units and BESS
-    total_power_per_generator = [sum(value(P[i, t]) for t in T) for i in I]
-    println("Total power delivered by each conventional generator (MWh): ", [round(p, digits=2) for p in total_power_per_generator])
-    println("SOC over time: ", [round(value(SOC[t]), digits=2) for t in T])
-    #println("Hourly BESS Charging Power (MW): ", [round(value(P_ch[t]), digits=2) for t in T])
-    #println("Hourly BESS Discharging Power (MW): ", [round(value(P_dis[t]), digits=2) for t in T])
-    
+    println("SOC over time: ", [round(value(SOC[t]), digits=2) for t in T])   
 else
     println("Optimization failed: ", termination_status(m))
 end
-
-#--------------------------------------------Results plotting--------------------------------------------------------#
-
-
-plot(T, MCPs,
-seriestype = :steppost,
-xlabel = "Time (h)",
-ylabel = "Market Clearing Price (USD/MWh)",
-#label = "MCP",
-#legend = :topright,
-legend = false,
-linewidth = 2,
-marker = :circle,
-color = :blue,
-ylims = (5, 12),
-grid = true)
-
