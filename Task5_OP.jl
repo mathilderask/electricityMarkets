@@ -186,9 +186,14 @@ function BM_model(gen_cap::Dict, wind_cap::Dict, gen_cost::Dict, P_D::Dict, dema
         BA_MCP = round(JuMP.dual(balancing_system), digits=2)
         println("🔹 Balancing Market Clearing Price (BA_MCP): ", BA_MCP)
 
+        # --- COMMENT -----
+        # The following code calculates the profit and revenue for each generator and wind farm
+        # based on the BA_MCP and MCP values. The code is not optimized and can be improved.
+        # Currently, it is following the specific Power Deficit shemce where G8 experiences outage.
+        # An improved version would consider all possible scenarios, using overall system imbalance.
+        # ----------------
+
         # For the balancing generators
-           # Profit = (BA_MCP*P_up) - (gen_cost*P_up) + DA_profit
-        
         total_profit_bg = 0.0
         total_revenue_bg = 0.0
 
@@ -234,7 +239,6 @@ function BM_model(gen_cap::Dict, wind_cap::Dict, gen_cost::Dict, P_D::Dict, dema
         end
 
         # G8 - regulation pricing
-            # Charged = BA_MCP * Imbalance(<0)
         g8_profit = BA_MCP * (-diff_G8)
         g8_revenue = MCP * gen_DA["G8"] + g8_profit
 
