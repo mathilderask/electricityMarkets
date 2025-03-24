@@ -40,7 +40,7 @@ Christos Ordoudis, Pierre Pinson, Juan M. Morales, and Marco Zugno.
 - [Task 2 wo_BESS.jl]: This script models the day-ahead electricity market over a 24-hour period without a battery energy storage system (BESS). The objective of the model is maximizing total social welfare.
 - [Task 3_nodal sensitivity analysis]: Nodal price sensitivity analysis
 - [Task 3 zonal]: Zonal-level market analysis 
-- [Task 4]
+- [Task 4]: Written about in report PDF
 - [Task 5_BalancingMarket.jl]: This script models the balancing market for the scenario where there is an outtage in Generator 8 and wind production differs, following the one-price and two-price scheme, respectively.
 - [Task6_ReserveMarket.jl]: This script models the reserve market following the European practice, clearing reserves before the day-ahead energy market.
 
