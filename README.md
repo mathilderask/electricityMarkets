@@ -45,7 +45,13 @@ Christos Ordoudis, Pierre Pinson, Juan M. Morales, and Marco Zugno.
 - [Task6_ReserveMarket.jl]: This script models the reserve market following the European practice, clearing reserves before the day-ahead energy market.
 
 ### How to Run
-1. Ensure Julia and required packages (JuMP, GLPK, CSV, DataFrames, Plots) are installed.
+1. Ensure Julia and required packages (JuMP, GLPK, CSV, DataFrames, Plots) are installed:
+      using Pkg
+      Pkg.add("CSV")
+      Pkg.add("DataFrames")
+      Pkg.add("JuMP")
+      Pkg.add("GLPK")
+      Pkg.add("PyPlot")
 2. Place all dataset files in the same directory as the scripts.
 3. After completing the preceding steps, the .jl files should be fully functional without any issues.
 
