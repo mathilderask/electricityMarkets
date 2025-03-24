@@ -53,16 +53,16 @@ optimize!(m)
 
 if termination_status(m) == MOI.OPTIMAL
     println("Objective value: ", JuMP.objective_value(m))
-# Extract and print optimal values for wind farms
-for i in eachindex(W)
-    println("W[$i] = ", JuMP.value(W[i]))
-end
-# Extract and print optimal values for x1
+    # Extract and print optimal values for wind farms
+    for i in eachindex(W)
+        println("W[$i] = ", JuMP.value(W[i]))
+    end
+    # Extract and print optimal values for x1
     for i in eachindex(P)
         println("P[$i] = ", JuMP.value(P[i]))
     end
 
-# Extract and print optimal values for x2
+    # Extract and print optimal values for x2
     for j in eachindex(D)
         println("D[$j] = ", JuMP.value(D[j]))
     end
